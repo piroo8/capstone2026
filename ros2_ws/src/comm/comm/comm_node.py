@@ -14,10 +14,9 @@ MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
 
 LAUNCH_ALT = 0.5
 Z_OFFSET = -0.125
-RADIUS = 0.1
-# Freeze yaw updates inside the last 20 cm so position noise does not cause twitching.
-HEADING_HOLD_RADIUS = 0.2
+RADIUS = 0.2
 
+YAW_RADIUS = 0.5
 
 class CommNode(Node):
     def __init__(self):
@@ -36,8 +35,7 @@ class CommNode(Node):
         self.state_sub = self.create_subscription(State, 'mavros/state', self._state_callback, 10)
         self.pos_sub = self.create_subscription(PoseStamped, 'mavros/local_position/pose', self._pos_callback, qos_profile_sensor_data)
         self.local_pos_pub = self.create_publisher(PoseStamped, 'mavros/setpoint_position/local', 10)
-        # Restore waypoint intake from the ground-control publisher.
-        self.waypoint_sub = self.create_subscription(PoseArray, 'rob498_drone_8/comm/waypoints', self._waypoint_callback, 10)
+        self.waypoint_sub = self.create_subscription(PoseArray,'rob498_drone_8/comm/waypoints',self._waypoint_callback, 10)
         # Routed to local_planner_node when it is running; planner then publishes to MAVROS.
         self.cmd_pose_pub = self.create_publisher(PoseStamped, 'rob498_drone_8/cmd_pose', 10)
 
@@ -52,8 +50,7 @@ class CommNode(Node):
         self.current_pos = PoseStamped()
         self.target_pose = PoseStamped()
         self.current_state = State()
-        # Home is captured once on launch from the current pose.
-        self.home_pose = None
+        self.home_pose = PoseStamped()
 
         # Waypoints
         self.waypoints = []
@@ -62,8 +59,7 @@ class CommNode(Node):
         self.target_radius = RADIUS
         self.test_active = False
         self.return_home_active = False
-        # Last yaw commanded while still outside the heading-hold radius.
-        self.active_wp_yaw = None
+        self.prev_waypoint = None
 
         self.get_logger().info('Waiting for MAVROS services...')
         self.arming_client.wait_for_service()
@@ -75,7 +71,6 @@ class CommNode(Node):
     def callback_launch(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """Takeoff in place to LAUNCH_ALT"""
         if self.home_pose is None:
-            self.home_pose = PoseStamped()
             self.home_pose.pose = self.current_pos.pose
             self.get_logger().info(f"[HOME SET] X: {self.current_pos.pose.position.x:.3f} | Y: {self.current_pos.pose.position.y:.3f} | Z: {self.current_pos.pose.position.z:.3f}")
 
@@ -99,14 +94,14 @@ class CommNode(Node):
     def callback_test(self, request, response):
 
         if not self.waypoints_received:
-            self.get_logger().warn("[TEST]: Cannot start test â€” no waypoints received")
+            self.get_logger().warn("[TEST]: Cannot start test — no waypoints received")
             response.success = False
             response.message = "No waypoints received"
             return response
 
+        self.prev_waypoint = np.array([self.current_pos.pose.position.x, self.current_pos.pose.position.y, self.current_pos.pose.position.z])
         self.current_wp_index = 0
         self.test_active = True
-        self.active_wp_yaw = None
 
         self.get_logger().info("[TEST]: Starting waypoint navigation")
 
@@ -174,7 +169,6 @@ class CommNode(Node):
         if self.current_wp_index >= len(self.waypoints):
             self.test_active = False
             self.return_home_active = True
-            self.active_wp_yaw = None
             self.get_logger().info("[MISSION]: All waypoints reached. Returning home.")
             return
 
@@ -184,42 +178,38 @@ class CommNode(Node):
         dx = wp[0] - self.current_pos.pose.position.x
         dy = wp[1] - self.current_pos.pose.position.y
         dz = wp[2] - self.current_pos.pose.position.z
-        xy_dist = math.hypot(dx, dy)
 
         # Set target position and yaw to face direction of travel.
         self.target_pose.pose.position.x = wp[0]
         self.target_pose.pose.position.y = wp[1]
         self.target_pose.pose.position.z = wp[2]
-        if xy_dist > HEADING_HOLD_RADIUS:
-            yaw = math.atan2(dy, dx)
-            self.active_wp_yaw = yaw
+
+        xy_dist = np.sqrt(dx**2 + dy**2)
+        dist = np.sqrt(dx**2 + dy**2 + dz**2)
+        
+
+        #wp = np.array([pose.position.x, pose.position.y, pose.position.z])
+        yaw = math.atan2(wp[1] - self.prev_waypoint[1], wp[0] - self.prev_waypoint[0])
+        
+        if xy_dist > YAW_RADIUS:
             self.target_pose.pose.orientation.x = 0.0
             self.target_pose.pose.orientation.y = 0.0
             self.target_pose.pose.orientation.z = math.sin(yaw / 2.0)
             self.target_pose.pose.orientation.w = math.cos(yaw / 2.0)
-        elif self.active_wp_yaw is not None:
-            # Hold the last stable yaw near the waypoint instead of chasing noisy dx/dy.
-            self.target_pose.pose.orientation.x = 0.0
-            self.target_pose.pose.orientation.y = 0.0
-            self.target_pose.pose.orientation.z = math.sin(self.active_wp_yaw / 2.0)
-            self.target_pose.pose.orientation.w = math.cos(self.active_wp_yaw / 2.0)
-        else:
-            self.target_pose.pose.orientation = self.current_pos.pose.orientation
-
-        dist = np.sqrt(dx**2 + dy**2 + dz**2)
 
         now = self.get_clock().now()
 
         if (now - self.last_nav_log_time).nanoseconds > 1e9:
             self.get_logger().info(f"[NAV]: WP {self.current_wp_index+1} | "f"Dist {dist:.3f} m")
             self.last_nav_log_time = now
+            self.get_logger().info(f"[ORIENTATION]: Yaw to target: {math.degrees(yaw):.1f} degrees")
 
         if dist < self.target_radius:
 
             self.get_logger().info(f"[WAYPOINT]: {self.current_wp_index+1} reached "f"(distance {dist:.3f} m)")
 
             self.current_wp_index += 1
-            self.active_wp_yaw = None
+            self.prev_waypoint = wp
 
             if self.current_wp_index < len(self.waypoints):
 
