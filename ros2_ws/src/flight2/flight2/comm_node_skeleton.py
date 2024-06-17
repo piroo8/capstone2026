@@ -17,11 +17,11 @@ LAUNCH_ALT = 0.5 - 0.185
 
 class CommNode(Node):
     def __init__(self):
-        super().__init__('rob498_drone_08')
-        self.srv_launch = self.create_service(Trigger, 'rob498_drone_08/comm/launch', self.callback_launch)
-        self.srv_test = self.create_service(Trigger, 'rob498_drone_08/comm/test', self.callback_test)
-        self.srv_land = self.create_service(Trigger, 'rob498_drone_08/comm/land', self.callback_land)
-        self.srv_abort = self.create_service(Trigger, 'rob498_drone_08/comm/abort', self.callback_abort)
+        super().__init__('rob498_drone_8')
+        self.srv_launch = self.create_service(Trigger, 'rob498_drone_8/comm/launch', self.callback_launch)
+        self.srv_test = self.create_service(Trigger, 'rob498_drone_8/comm/test', self.callback_test)
+        self.srv_land = self.create_service(Trigger, 'rob498_drone_8/comm/land', self.callback_land)
+        self.srv_abort = self.create_service(Trigger, 'rob498_drone_8/comm/abort', self.callback_abort)
 
         # Clients
         self.arming_client = self.create_client(CommandBool, 'mavros/cmd/arming')
@@ -76,7 +76,11 @@ class CommNode(Node):
         # lock XY to current pose
         self.target_pose.pose.position.x = self.current_pos.pose.position.x
         self.target_pose.pose.position.y = self.current_pos.pose.position.y
-        self.target_pose.pose.position.z = self.current_pos.pose.position.z
+        self.target_pose.pose.position.z = self.current_pos.pose.position.z + LAUNCH_ALT
+
+        self.get_logger().info(f"[TEST]: X {self.current_pos.pose.position.x}")
+        self.get_logger().info(f"[TEST]: Y: {self.current_pos.pose.position.y}")
+        self.get_logger().info(f"[TEST]: Z: {self.current_pos.pose.position.z}")
 
         self.target_pose.pose.orientation = self.current_pos.pose.orientation
 
