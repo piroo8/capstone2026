@@ -5,16 +5,15 @@ from mavros_msgs.msg import State
 from geometry_msgs.msg import PoseStamped
 from mavros_msgs.srv import CommandBool, SetMode, CommandLong
 from rclpy.qos import qos_profile_sensor_data
-from geometry_msgs.msg import PoseArray
+from geometry_msgs.msg import PoseArray, Pose
 import numpy as np
 
 STATES = ['LAUNCH, ARMING']
 MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
-#Vicon
-LAUNCH_ALT = 0.5 - 0.185
 
-#Camera
-#LAUNCH_ALT = 0.5
+LAUNCH_ALT = 0.5
+Z_OFFSET = 0.0
+RADIUS = 0.2
 
 
 class CommNode(Node):
@@ -57,7 +56,7 @@ class CommNode(Node):
         self.waypoints = []
         self.waypoints_received = False
         self.current_wp_index = 0
-        self.target_radius = 0.3  # 40 cm radius test # changed to 0.3
+        self.target_radius = RADIUS  # 40 cm radius test # changed to 0.3
         self.test_active = False
         self.return_home_active = False
 
@@ -93,8 +92,6 @@ class CommNode(Node):
         return response
 
     def callback_test(self, request, response):
-        
-        publish_waypoints()
 
         if not self.waypoints_received:
             self.get_logger().warn("[TEST]: Cannot start test — no waypoints received")
@@ -293,6 +290,7 @@ class CommNode(Node):
     def _pos_callback(self, msg):
         """Get current position + orientation"""
         self.current_pos = msg
+        self.current_pos.pose.position.z += Z_OFFSET # hard code height offset of vicon
 
         now = self.get_clock().now()
         if (now - self.last_pos_log_time).nanoseconds > 1e9:
@@ -302,6 +300,7 @@ class CommNode(Node):
 
     def _timer_callback(self):
         """Heartbeat for the drone"""
+        #self.publish_waypoints()
         # WAYPOINT NAVIGATION
         if self.test_active:
             self.update_waypoint_navigation()
@@ -346,28 +345,28 @@ class CommNode(Node):
         wp3 = Pose()
         wp4 = Pose()
 
-        wp1.position.x = 2
-        wp1.position.y = 0
-        wp1.position.z = 1
+        wp1.position.x = -1.0
+        wp1.position.y = -1.0
+        wp1.position.z = 1.0
 
-        wp2.position.x = 2
-        wp2.position.y = 2
-        wp2.position.z = 1
+        wp2.position.x = 1.0
+        wp2.position.y = -1.0
+        wp2.position.z = 2.0
 
-        wp3.position.x = 0
-        wp3.position.y = 2
-        wp3.position.z = 1
+        wp3.position.x = 1.0
+        wp3.position.y = 1.0
+        wp3.position.z = 1.0
 
-        wp4.position.x = 0
-        wp4.position.y = 0
-        wp4.position.z = 1
+        wp4.position.x = -1.0
+        wp4.position.y = 1.0
+        wp4.position.z = 0.5
 
         waypoints = PoseArray()
 
-        waypoints.append(wp1)
-        waypoints.append(wp2)
-        waypoints.append(wp3)
-        waypoints.append(wp4)
+        waypoints.poses.append(wp1)
+        waypoints.poses.append(wp2)
+        waypoints.poses.append(wp3)
+        waypoints.poses.append(wp4)
 
         self.waypoint_pub.publish(waypoints)
 
