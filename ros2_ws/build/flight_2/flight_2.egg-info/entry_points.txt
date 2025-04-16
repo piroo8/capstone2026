@@ -1,3 +1,0 @@
-[console_scripts]
-my_node = flight_2.my_node:main
-

@@ -261,7 +261,7 @@
     tf.listen: false           # enable tf listener (disable topic subscribers)
     tf.frame_id: "odom"
     tf.child_frame_id: "vision_estimate"
-    tf.rate_limit: 10.0
+    tf.rate_limit: 50.0
 
 # vision_speed_estimate
 /**/vision_speed:

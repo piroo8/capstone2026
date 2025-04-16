@@ -9,6 +9,7 @@ setup.py
 ../../build/flight2/flight2.egg-info/top_level.txt
 ../../build/flight2/flight2.egg-info/zip-safe
 flight2/__init__.py
+flight2/comm_node_skeleton.py
 resource/flight2
 test/test_copyright.py
 test/test_flake8.py

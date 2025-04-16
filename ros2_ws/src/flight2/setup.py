@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'comm_node = flight2.comm_node_skeleton:main',
         ],
     },
 )
