@@ -1,0 +1,21 @@
+[3.802s] Invoking command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/src/vision_bridge': PYTHONPATH=/home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bridge/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bridge/lib/python3.8/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/vision_bridge build --build-base /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bridge/build install --record /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bridge/install.log --single-version-externally-managed install_data
+[5.184s] running egg_info
+[5.187s] writing ../../build/vision_bridge/vision_bridge.egg-info/PKG-INFO
+[5.189s] writing dependency_links to ../../build/vision_bridge/vision_bridge.egg-info/dependency_links.txt
+[5.190s] writing entry points to ../../build/vision_bridge/vision_bridge.egg-info/entry_points.txt
+[5.190s] writing requirements to ../../build/vision_bridge/vision_bridge.egg-info/requires.txt
+[5.191s] writing top-level names to ../../build/vision_bridge/vision_bridge.egg-info/top_level.txt
+[5.214s] reading manifest file '../../build/vision_bridge/vision_bridge.egg-info/SOURCES.txt'
+[5.223s] writing manifest file '../../build/vision_bridge/vision_bridge.egg-info/SOURCES.txt'
+[5.224s] running build
+[5.225s] running build_py
+[5.225s] running install
+[5.229s] running install_lib
+[5.237s] running install_data
+[5.237s] running install_egg_info
+[5.246s] removing '/home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bridge/lib/python3.8/site-packages/vision_bridge-0.0.1-py3.8.egg-info' (and everything under it)
+[5.247s] Copying ../../build/vision_bridge/vision_bridge.egg-info to /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bridge/lib/python3.8/site-packages/vision_bridge-0.0.1-py3.8.egg-info
+[5.252s] running install_scripts
+[5.342s] Installing vision_bridge script to /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bridge/lib/vision_bridge
+[5.345s] writing list of installed files to '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bridge/install.log'
+[5.456s] Invoked command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/src/vision_bridge' returned '0': PYTHONPATH=/home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bridge/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bridge/lib/python3.8/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/vision_bridge build --build-base /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bridge/build install --record /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bridge/install.log --single-version-externally-managed install_data

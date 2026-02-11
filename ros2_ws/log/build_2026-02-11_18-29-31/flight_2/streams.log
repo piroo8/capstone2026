@@ -1,0 +1,40 @@
+[8.259s] Invoking command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2': PYTHONPATH=/home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/python3.8/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --uninstall --editable --build-directory /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/build
+[10.522s] /usr/local/lib/python3.8/dist-packages/setuptools/dist.py:717: UserWarning: Usage of dash-separated 'script-dir' will not be supported in future versions. Please use the underscore name 'script_dir' instead
+[10.522s]   warnings.warn(
+[10.796s] running develop
+[11.779s] Removing /home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/python3.8/site-packages/flight-2.egg-link (link to .)
+[11.933s] Invoked command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2' returned '0': PYTHONPATH=/home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/python3.8/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --uninstall --editable --build-directory /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/build
+[11.950s] Invoking command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/src/flight_2': PYTHONPATH=/home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/python3.8/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/flight_2 build --build-base /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/build install --record /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/install.log --install-scripts $base/lib/flight_2 --single-version-externally-managed install_data --force
+[13.532s] /usr/local/lib/python3.8/dist-packages/setuptools/dist.py:717: UserWarning: Usage of dash-separated 'script-dir' will not be supported in future versions. Please use the underscore name 'script_dir' instead
+[13.532s]   warnings.warn(
+[13.723s] running egg_info
+[13.723s] writing ../../build/flight_2/flight_2.egg-info/PKG-INFO
+[13.724s] writing dependency_links to ../../build/flight_2/flight_2.egg-info/dependency_links.txt
+[13.725s] writing entry points to ../../build/flight_2/flight_2.egg-info/entry_points.txt
+[13.725s] writing requirements to ../../build/flight_2/flight_2.egg-info/requires.txt
+[13.727s] writing top-level names to ../../build/flight_2/flight_2.egg-info/top_level.txt
+[13.743s] reading manifest file '../../build/flight_2/flight_2.egg-info/SOURCES.txt'
+[13.750s] writing manifest file '../../build/flight_2/flight_2.egg-info/SOURCES.txt'
+[13.768s] running build
+[13.769s] running build_py
+[13.769s] creating /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/build
+[13.770s] creating /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/build/lib
+[13.776s] creating /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/build/lib/flight_2
+[13.788s] copying flight_2/my_node.py -> /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/build/lib/flight_2
+[13.793s] copying flight_2/__init__.py -> /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/build/lib/flight_2
+[13.795s] running install
+[13.796s] running install_lib
+[13.797s] creating /home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/python3.8/site-packages/flight_2
+[13.797s] copying /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/build/lib/flight_2/my_node.py -> /home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/python3.8/site-packages/flight_2
+[13.798s] copying /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/build/lib/flight_2/__init__.py -> /home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/python3.8/site-packages/flight_2
+[13.799s] byte-compiling /home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/python3.8/site-packages/flight_2/my_node.py to my_node.cpython-38.pyc
+[13.799s] byte-compiling /home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/python3.8/site-packages/flight_2/__init__.py to __init__.cpython-38.pyc
+[13.800s] running install_data
+[13.800s] copying resource/flight_2 -> /home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/share/ament_index/resource_index/packages
+[13.801s] copying package.xml -> /home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/share/flight_2
+[13.801s] running install_egg_info
+[13.834s] Copying ../../build/flight_2/flight_2.egg-info to /home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/python3.8/site-packages/flight_2-0.0.0-py3.8.egg-info
+[13.849s] running install_scripts
+[13.967s] Installing my_node script to /home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/flight_2
+[13.969s] writing list of installed files to '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/install.log'
+[14.116s] Invoked command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/src/flight_2' returned '0': PYTHONPATH=/home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight_2/lib/python3.8/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/flight_2 build --build-base /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/build install --record /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight_2/install.log --install-scripts $base/lib/flight_2 --single-version-externally-managed install_data --force

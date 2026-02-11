@@ -1,0 +1,35 @@
+running egg_info
+creating ../build/vision_bdg/vision_bdg.egg-info
+writing ../build/vision_bdg/vision_bdg.egg-info/PKG-INFO
+writing dependency_links to ../build/vision_bdg/vision_bdg.egg-info/dependency_links.txt
+writing entry points to ../build/vision_bdg/vision_bdg.egg-info/entry_points.txt
+writing requirements to ../build/vision_bdg/vision_bdg.egg-info/requires.txt
+writing top-level names to ../build/vision_bdg/vision_bdg.egg-info/top_level.txt
+writing manifest file '../build/vision_bdg/vision_bdg.egg-info/SOURCES.txt'
+reading manifest file '../build/vision_bdg/vision_bdg.egg-info/SOURCES.txt'
+writing manifest file '../build/vision_bdg/vision_bdg.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/build
+creating /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/build/lib
+creating /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/build/lib/vision_bdg
+copying vision_bdg/vision_bdg.py -> /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/build/lib/vision_bdg
+copying vision_bdg/__init__.py -> /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/build/lib/vision_bdg
+running install
+running install_lib
+creating /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/python3.8/site-packages/vision_bdg
+copying /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/build/lib/vision_bdg/vision_bdg.py -> /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/python3.8/site-packages/vision_bdg
+copying /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/build/lib/vision_bdg/__init__.py -> /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/python3.8/site-packages/vision_bdg
+byte-compiling /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/python3.8/site-packages/vision_bdg/vision_bdg.py to vision_bdg.cpython-38.pyc
+byte-compiling /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/python3.8/site-packages/vision_bdg/__init__.py to __init__.cpython-38.pyc
+running install_data
+creating /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/share/ament_index
+creating /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/share/ament_index/resource_index
+creating /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/share/ament_index/resource_index/packages
+copying resource/vision_bdg -> /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/share/ament_index/resource_index/packages
+copying package.xml -> /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/share/vision_bdg
+running install_egg_info
+Copying ../build/vision_bdg/vision_bdg.egg-info to /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/python3.8/site-packages/vision_bdg-0.0.0-py3.8.egg-info
+running install_scripts
+Installing vision_bdg script to /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/vision_bdg
+writing list of installed files to '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/install.log'

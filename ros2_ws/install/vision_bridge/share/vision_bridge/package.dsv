@@ -1,0 +1,3 @@
+source;share/vision_bridge/hook/pythonpath.ps1
+source;share/vision_bridge/hook/pythonpath.dsv
+source;share/vision_bridge/hook/pythonpath.sh

@@ -1,0 +1,45 @@
+[2.888s] Invoking command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/jetson/rob498/Capstone/drone_ws/install/visual_servoing:/home/jetson/rob498/Capstone/drone_ws/install/vicon:/home/jetson/rob498/Capstone/drone_ws/install/test_pkg:/home/jetson/rob498/Capstone/drone_ws/install/offboard_control:/home/jetson/rob498/Capstone/drone_ws/install/cv_basics /usr/bin/cmake /home/jetson/rob498_2026/capstone2026/ros2_ws/src/px4_autonomy_modules -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules
+[4.546s] -- The C compiler identification is GNU 8.4.0
+[4.546s] -- The CXX compiler identification is GNU 8.4.0
+[4.547s] -- Check for working C compiler: /usr/bin/cc
+[4.635s] -- Check for working C compiler: /usr/bin/cc -- works
+[4.647s] -- Detecting C compiler ABI info
+[5.144s] -- Detecting C compiler ABI info - done
+[5.219s] -- Detecting C compile features
+[5.223s] -- Detecting C compile features - done
+[5.238s] -- Check for working CXX compiler: /usr/bin/c++
+[5.672s] -- Check for working CXX compiler: /usr/bin/c++ -- works
+[5.690s] -- Detecting CXX compiler ABI info
+[6.329s] -- Detecting CXX compiler ABI info - done
+[6.412s] -- Detecting CXX compile features
+[6.416s] -- Detecting CXX compile features - done
+[6.469s] -- Found ament_cmake: 0.9.12 (/opt/ros/foxy/share/ament_cmake/cmake)
+[6.728s] -- Found PythonInterp: /usr/bin/python3 (found suitable version "3.8.10", minimum required is "3") 
+[6.729s] -- Using PYTHON_EXECUTABLE: /usr/bin/python3
+[8.131s] -- Override CMake install command with custom implementation using symlinks instead of copying resources
+[8.482s] -- Found rclcpp: 2.4.3 (/opt/ros/foxy/share/rclcpp/cmake)
+[9.474s] -- Found rmw_implementation_cmake: 1.0.4 (/opt/ros/foxy/share/rmw_implementation_cmake/cmake)
+[9.485s] CMake Error at /opt/ros/foxy/share/rmw_implementation/cmake/rmw_implementation-extras.cmake:54 (message):
+[9.486s]   The RMW implementation has been specified as 'rmw_fastrtps_cpp' via the
+[9.486s]   default when rmw_implementation was built, but it is not available at this
+[9.487s]   time.
+[9.487s] 
+[9.487s]   
+[9.488s] 
+[9.488s]   Currently available middlewares:
+[9.488s] 
+[9.489s]   ''
+[9.489s] Call Stack (most recent call first):
+[9.489s]   /opt/ros/foxy/share/rmw_implementation/cmake/rmw_implementationConfig.cmake:41 (include)
+[9.490s]   /opt/ros/foxy/share/rcl/cmake/ament_cmake_export_dependencies-extras.cmake:21 (find_package)
+[9.490s]   /opt/ros/foxy/share/rcl/cmake/rclConfig.cmake:41 (include)
+[9.490s]   /opt/ros/foxy/share/libstatistics_collector/cmake/ament_cmake_export_dependencies-extras.cmake:21 (find_package)
+[9.491s]   /opt/ros/foxy/share/libstatistics_collector/cmake/libstatistics_collectorConfig.cmake:41 (include)
+[9.491s]   /opt/ros/foxy/share/rclcpp/cmake/ament_cmake_export_dependencies-extras.cmake:21 (find_package)
+[9.492s]   /opt/ros/foxy/share/rclcpp/cmake/rclcppConfig.cmake:41 (include)
+[9.492s]   CMakeLists.txt:10 (find_package)
+[9.493s] 
+[9.493s] 
+[9.497s] -- Configuring incomplete, errors occurred!
+[9.497s] See also "/home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules/CMakeFiles/CMakeOutput.log".
+[9.532s] Invoked command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules' returned '1': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/jetson/rob498/Capstone/drone_ws/install/visual_servoing:/home/jetson/rob498/Capstone/drone_ws/install/vicon:/home/jetson/rob498/Capstone/drone_ws/install/test_pkg:/home/jetson/rob498/Capstone/drone_ws/install/offboard_control:/home/jetson/rob498/Capstone/drone_ws/install/cv_basics /usr/bin/cmake /home/jetson/rob498_2026/capstone2026/ros2_ws/src/px4_autonomy_modules -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules

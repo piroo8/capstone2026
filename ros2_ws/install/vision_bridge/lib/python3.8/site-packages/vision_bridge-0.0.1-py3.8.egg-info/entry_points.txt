@@ -1,0 +1,3 @@
+[console_scripts]
+vision_bridge = vision_bridge.bridge_node:main
+
