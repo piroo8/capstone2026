@@ -1,0 +1,15 @@
+running develop
+running egg_info
+writing vision_bridge.egg-info/PKG-INFO
+writing dependency_links to vision_bridge.egg-info/dependency_links.txt
+writing entry points to vision_bridge.egg-info/entry_points.txt
+writing requirements to vision_bridge.egg-info/requires.txt
+writing top-level names to vision_bridge.egg-info/top_level.txt
+reading manifest file 'vision_bridge.egg-info/SOURCES.txt'
+writing manifest file 'vision_bridge.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bridge/lib/python3.8/site-packages/vision-bridge.egg-link (link to .)
+Installing vision_bridge script to /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bridge/lib/vision_bridge
+
+Installed /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bridge
+running symlink_data

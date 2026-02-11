@@ -1,0 +1,59 @@
+[3.242s] Invoking command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/foxy:/home/jetson/rob498/Capstone/drone_ws/install/visual_servoing:/home/jetson/rob498/Capstone/drone_ws/install/vicon:/home/jetson/rob498/Capstone/drone_ws/install/test_pkg:/home/jetson/rob498/Capstone/drone_ws/install/offboard_control:/home/jetson/rob498/Capstone/drone_ws/install/cv_basics /usr/bin/cmake /home/jetson/rob498_2026/capstone2026/ros2_ws/src/px4_autonomy_modules -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules
+[3.454s] -- Found ament_cmake: 0.9.12 (/opt/ros/foxy/share/ament_cmake/cmake)
+[3.608s] -- Using PYTHON_EXECUTABLE: /usr/bin/python3
+[5.061s] -- Override CMake install command with custom implementation using symlinks instead of copying resources
+[5.165s] -- Found rclcpp: 2.4.3 (/opt/ros/foxy/share/rclcpp/cmake)
+[5.562s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[5.642s] -- Found rosidl_adapter: 1.3.1 (/opt/ros/foxy/share/rosidl_adapter/cmake)
+[6.644s] -- Found OpenSSL: /usr/lib/aarch64-linux-gnu/libcrypto.so (found version "1.1.1f")  
+[6.884s] -- Found FastRTPS: /opt/ros/foxy/include  
+[7.687s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[8.629s] -- Found rmw_implementation_cmake: 1.0.4 (/opt/ros/foxy/share/rmw_implementation_cmake/cmake)
+[8.645s] -- Using RMW implementation 'rmw_fastrtps_cpp' as default
+[8.654s] -- Looking for pthread.h
+[9.928s] -- Looking for pthread.h - found
+[9.933s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+[10.737s] -- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Failed
+[10.739s] -- Looking for pthread_create in pthreads
+[11.262s] -- Looking for pthread_create in pthreads - not found
+[11.267s] -- Looking for pthread_create in pthread
+[12.105s] -- Looking for pthread_create in pthread - found
+[12.128s] -- Found Threads: TRUE  
+[14.493s] -- Found rclpy: 1.0.13 (/opt/ros/foxy/share/rclpy/cmake)
+[14.520s] -- Found nav_msgs: 2.0.5 (/opt/ros/foxy/share/nav_msgs/cmake)
+[15.999s] -- Found sensor_msgs: 2.0.5 (/opt/ros/foxy/share/sensor_msgs/cmake)
+[16.439s] -- Found mavros: 2.4.0 (/opt/ros/foxy/share/mavros/cmake)
+[16.524s] -- Found mavros_extras: 2.4.0 (/opt/ros/foxy/share/mavros_extras/cmake)
+[16.547s] -- Found ament_lint_auto: 0.9.8 (/opt/ros/foxy/share/ament_lint_auto/cmake)
+[17.065s] -- Added test 'flake8' to check Python code syntax and style conventions
+[17.068s] -- Added test 'lint_cmake' to check CMake code style
+[17.071s] -- Added test 'pep257' to check Python code against some of the style conventions in PEP 257
+[17.077s] -- Added test 'xmllint' to check XML markup files
+[17.103s] -- Configuring done
+[17.113s] -- Generating done
+[17.121s] -- Build files have been written to: /home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules
+[17.149s] Invoked command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/foxy:/home/jetson/rob498/Capstone/drone_ws/install/visual_servoing:/home/jetson/rob498/Capstone/drone_ws/install/vicon:/home/jetson/rob498/Capstone/drone_ws/install/test_pkg:/home/jetson/rob498/Capstone/drone_ws/install/offboard_control:/home/jetson/rob498/Capstone/drone_ws/install/cv_basics /usr/bin/cmake /home/jetson/rob498_2026/capstone2026/ros2_ws/src/px4_autonomy_modules -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules
+[17.161s] Invoking command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/foxy:/home/jetson/rob498/Capstone/drone_ws/install/visual_servoing:/home/jetson/rob498/Capstone/drone_ws/install/vicon:/home/jetson/rob498/Capstone/drone_ws/install/test_pkg:/home/jetson/rob498/Capstone/drone_ws/install/offboard_control:/home/jetson/rob498/Capstone/drone_ws/install/cv_basics /usr/bin/cmake --build /home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules -- -j4 -l4
+[17.329s] Invoked command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/foxy:/home/jetson/rob498/Capstone/drone_ws/install/visual_servoing:/home/jetson/rob498/Capstone/drone_ws/install/vicon:/home/jetson/rob498/Capstone/drone_ws/install/test_pkg:/home/jetson/rob498/Capstone/drone_ws/install/offboard_control:/home/jetson/rob498/Capstone/drone_ws/install/cv_basics /usr/bin/cmake --build /home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules -- -j4 -l4
+[17.382s] Invoking command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/foxy:/home/jetson/rob498/Capstone/drone_ws/install/visual_servoing:/home/jetson/rob498/Capstone/drone_ws/install/vicon:/home/jetson/rob498/Capstone/drone_ws/install/test_pkg:/home/jetson/rob498/Capstone/drone_ws/install/offboard_control:/home/jetson/rob498/Capstone/drone_ws/install/cv_basics /usr/bin/cmake --install /home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules
+[17.417s] -- Install configuration: ""
+[17.418s] -- Execute custom install script
+[17.421s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/launch/mavros.launch.py
+[17.456s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/launch/px4_config.yaml
+[17.491s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/launch/px4_pluginlists.yaml
+[17.530s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/ament_index/resource_index/package_run_dependencies/px4_autonomy_modules
+[17.571s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/ament_index/resource_index/parent_prefix_path/px4_autonomy_modules
+[17.607s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/environment/ament_prefix_path.sh
+[17.643s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/environment/ament_prefix_path.dsv
+[17.679s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/environment/path.sh
+[17.714s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/environment/path.dsv
+[17.749s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/local_setup.bash
+[17.784s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/local_setup.sh
+[17.819s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/local_setup.zsh
+[17.855s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/local_setup.dsv
+[17.892s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/package.dsv
+[17.927s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/ament_index/resource_index/packages/px4_autonomy_modules
+[17.966s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/cmake/px4_autonomy_modulesConfig.cmake
+[18.001s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/cmake/px4_autonomy_modulesConfig-version.cmake
+[18.037s] -- Symlinking: /home/jetson/rob498_2026/capstone2026/ros2_ws/install/px4_autonomy_modules/share/px4_autonomy_modules/package.xml
+[18.082s] Invoked command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/foxy:/home/jetson/rob498/Capstone/drone_ws/install/visual_servoing:/home/jetson/rob498/Capstone/drone_ws/install/vicon:/home/jetson/rob498/Capstone/drone_ws/install/test_pkg:/home/jetson/rob498/Capstone/drone_ws/install/offboard_control:/home/jetson/rob498/Capstone/drone_ws/install/cv_basics /usr/bin/cmake --install /home/jetson/rob498_2026/capstone2026/ros2_ws/build/px4_autonomy_modules

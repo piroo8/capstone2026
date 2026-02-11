@@ -1,0 +1,21 @@
+[7.762s] Invoking command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/src/vision_bdg': PYTHONPATH=/home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/python3.8/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/vision_bdg build --build-base /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/build install --record /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/install.log --single-version-externally-managed install_data
+[9.783s] running egg_info
+[9.787s] writing ../../build/vision_bdg/vision_bdg.egg-info/PKG-INFO
+[9.789s] writing dependency_links to ../../build/vision_bdg/vision_bdg.egg-info/dependency_links.txt
+[9.789s] writing entry points to ../../build/vision_bdg/vision_bdg.egg-info/entry_points.txt
+[9.789s] writing requirements to ../../build/vision_bdg/vision_bdg.egg-info/requires.txt
+[9.790s] writing top-level names to ../../build/vision_bdg/vision_bdg.egg-info/top_level.txt
+[9.807s] reading manifest file '../../build/vision_bdg/vision_bdg.egg-info/SOURCES.txt'
+[9.813s] writing manifest file '../../build/vision_bdg/vision_bdg.egg-info/SOURCES.txt'
+[9.813s] running build
+[9.814s] running build_py
+[9.816s] running install
+[9.819s] running install_lib
+[9.828s] running install_data
+[9.831s] running install_egg_info
+[9.842s] removing '/home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/python3.8/site-packages/vision_bdg-0.0.0-py3.8.egg-info' (and everything under it)
+[9.847s] Copying ../../build/vision_bdg/vision_bdg.egg-info to /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/python3.8/site-packages/vision_bdg-0.0.0-py3.8.egg-info
+[9.854s] running install_scripts
+[9.984s] Installing vision_bdg script to /home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/vision_bdg
+[9.988s] writing list of installed files to '/home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/install.log'
+[10.180s] Invoked command in '/home/jetson/rob498_2026/capstone2026/ros2_ws/src/vision_bdg' returned '0': PYTHONPATH=/home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/jetson/rob498_2026/capstone2026/ros2_ws/install/vision_bdg/lib/python3.8/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/vision_bdg build --build-base /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/build install --record /home/jetson/rob498_2026/capstone2026/ros2_ws/build/vision_bdg/install.log --single-version-externally-managed install_data

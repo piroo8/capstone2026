@@ -1,0 +1,14 @@
+running develop
+running egg_info
+writing flight2.egg-info/PKG-INFO
+writing dependency_links to flight2.egg-info/dependency_links.txt
+writing entry points to flight2.egg-info/entry_points.txt
+writing requirements to flight2.egg-info/requires.txt
+writing top-level names to flight2.egg-info/top_level.txt
+reading manifest file 'flight2.egg-info/SOURCES.txt'
+writing manifest file 'flight2.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/jetson/rob498_2026/capstone2026/ros2_ws/install/flight2/lib/python3.8/site-packages/flight2.egg-link (link to .)
+
+Installed /home/jetson/rob498_2026/capstone2026/ros2_ws/build/flight2
+running symlink_data
