@@ -13,9 +13,9 @@ def generate_launch_description():
         use_realsense,
 
         Node(
-            package='vision_bridge',
-            executable='vision_bridge',
-            name='vision_bridge_node',
+            package='vision_bdg',
+            executable='vision_bdg',
+            name='vision_bdg',
             output='screen',
             parameters=[
                 {'use_vicon': LaunchConfiguration('use_vicon')},

@@ -8,6 +8,7 @@ setup.py
 ../../build/vision_bdg/vision_bdg.egg-info/requires.txt
 ../../build/vision_bdg/vision_bdg.egg-info/top_level.txt
 ../../build/vision_bdg/vision_bdg.egg-info/zip-safe
+launch/vision_bdg.launch.py
 resource/vision_bdg
 test/test_copyright.py
 test/test_flake8.py
