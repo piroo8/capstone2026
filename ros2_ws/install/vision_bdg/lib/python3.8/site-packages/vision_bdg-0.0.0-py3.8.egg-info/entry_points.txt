@@ -1,3 +1,0 @@
-[console_scripts]
-vision_bdg = vision_bdg.vision_bdg:main
-
