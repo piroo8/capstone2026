@@ -46,66 +46,32 @@ class VisionBridge(Node):
             )
 
     # ---------------- VICON ----------------
-    # def vicon_callback(self, msg: PoseStamped):
-
-    #     out_msg = PoseStamped()
-    #     out_msg.header.stamp = msg.header.stamp
-    #     out_msg.header.frame_id = 'map'
-    #     out_msg.pose = msg.pose
-
-    #     self.publisher_.publish(out_msg)
-    
-    # def vicon_callback(self, msg: PoseStamped):
-    #     out_msg = PoseStamped()
-    #     out_msg.header.stamp = msg.header.stamp
-    #     out_msg.header.frame_id = 'map'
-
-    #     # --- Position Transform ---
-    #     # Flip X and Z, keep Y
-    #     out_msg.pose.position.x = -msg.pose.position.x
-    #     out_msg.pose.position.y =  msg.pose.position.y
-    #     out_msg.pose.position.z = -msg.pose.position.z
-
-    #     # --- Orientation Transform (180 deg about Y) ---
-    #     # Simplified Hamilton product for q_orig * [0, 1, 0, 0]
-    #     ox = msg.pose.orientation.x
-    #     oy = msg.pose.orientation.y
-    #     oz = msg.pose.orientation.z
-    #     ow = msg.pose.orientation.w
-
-    #     out_msg.pose.orientation.x =  oz
-    #     out_msg.pose.orientation.y =  ow
-    #     out_msg.pose.orientation.z = -ox
-    #     out_msg.pose.orientation.w = -oy
-
-    #     self.publisher_.publish(out_msg)
     def vicon_callback(self, msg: PoseStamped):
-        out_msg = PoseStamped()
-        out_msg.header.stamp = msg.header.stamp
-        out_msg.header.frame_id = 'map'
+        out = PoseStamped()
 
-        # Current values from Vicon
-        px, py, pz = msg.pose.position.x, msg.pose.position.y, msg.pose.position.z
-        ox, oy, oz, ow = msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w
+        out.header.stamp = self.get_clock().now().to_msg()
+        out.header.frame_id = "map"
 
-        # --- Step 1: Position Transform ---
-        # Combination of 180-Y and -90-Z results in:
-        out_msg.pose.position.x = -py
-        out_msg.pose.position.y = -px
-        out_msg.pose.position.z = -pz
+        # ---- position transform ----
+        out.pose.position.x = msg.pose.position.x
+        out.pose.position.y = msg.pose.position.y
+        out.pose.position.z = msg.pose.position.z
 
-        # --- Step 2: Orientation Transform ---
-        # Constant for 90-degree rotations (sin(45) = cos(45))
-        c = 0.70710678118 
+        # ---- orientation transform (180° about Z) ----
+        qx = msg.pose.orientation.x
+        qy = msg.pose.orientation.y
+        qz = msg.pose.orientation.z
+        qw = msg.pose.orientation.w
 
-        # This represents the combined rotation (180-Y followed by -90-Z)
-        # The resulting quaternion math simplifies to:
-        out_msg.pose.orientation.x =  c * (oz - ow)
-        out_msg.pose.orientation.y =  c * (oz + ow)
-        out_msg.pose.orientation.z =  c * (ox - oy)
-        out_msg.pose.orientation.w = -c * (ox + oy)
+        # quaternion for 180° rotation about Z
+        rx, ry, rz, rw = 0.0, 0.0, 1.0, 0.0
 
-        self.publisher_.publish(out_msg)
+        out.pose.orientation.x = rw*qx + rx*qw + ry*qz - rz*qy
+        out.pose.orientation.y = rw*qy - rx*qz + ry*qw + rz*qx
+        out.pose.orientation.z = rw*qz + rx*qy - ry*qx + rz*qw
+        out.pose.orientation.w = rw*qw - rx*qx - ry*qy - rz*qz
+
+        self.publisher_.publish(out)
     # ---------------- REALSENSE ----------------
     def realsense_callback(self, msg: Odometry):
         out_msg = PoseStamped()

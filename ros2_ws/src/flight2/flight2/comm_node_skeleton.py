@@ -4,6 +4,7 @@ from std_srvs.srv import Empty, Trigger
 from mavros_msgs.msg import State
 from geometry_msgs.msg import PoseStamped
 from mavros_msgs.srv import CommandBool, SetMode, CommandLong
+from rclpy.qos import qos_profile_sensor_data
 
 
 STATES = ['LAUNCH, ARMING']
@@ -30,7 +31,7 @@ class CommNode(Node):
 
         # Subs and Pubs
         self.state_sub = self.create_subscription(State, 'mavros/state', self.state_callback, 10)
-        self.pos_sub = self.create_subscription(PoseStamped, 'mavros/local_position/pose', self.pos_callback, 10)
+        self.pos_sub = self.create_subscription(PoseStamped, 'mavros/local_position/pose', self.pos_callback, qos_profile_sensor_data)
         self.local_pos_pub = self.create_publisher(PoseStamped, 'mavros/setpoint_position/local', 10)
 
         # Timer
@@ -44,6 +45,8 @@ class CommNode(Node):
         self.target_pose = PoseStamped()
         self.current_state = State()
 
+        self.home_pose = None
+
         self.get_logger().info('Waiting for MAVROS services...')
         self.arming_client.wait_for_service()
         self.set_mode_client.wait_for_service()
@@ -53,6 +56,10 @@ class CommNode(Node):
 
     def callback_launch(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """Takeoff in place to LAUNCH_ALT"""
+        if self.home_pose is None:
+            self.home_pose = self.current_pos
+            self.get_logger().info(f"[HOME SET] X: {self.current_pos.pose.position.x:.3f} | Y: {self.current_pos.pose.position.y:.3f} | Z: {self.current_pos.pose.position.z:.3f}")
+
         self.target_pose.pose.position.x = self.current_pos.pose.position.x
         self.target_pose.pose.position.y = self.current_pos.pose.position.y
         self.target_pose.pose.orientation = self.current_pos.pose.orientation
@@ -74,14 +81,7 @@ class CommNode(Node):
     def callback_test(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """hover"""
         # lock XY to current pose
-        self.target_pose.pose.position.x = self.current_pos.pose.position.x
-        self.target_pose.pose.position.y = self.current_pos.pose.position.y
-        self.target_pose.pose.position.z = self.current_pos.pose.position.z + LAUNCH_ALT
-
-        self.get_logger().info(f"[TEST]: X {self.current_pos.pose.position.x}")
-        self.get_logger().info(f"[TEST]: Y: {self.current_pos.pose.position.y}")
-        self.get_logger().info(f"[TEST]: Z: {self.current_pos.pose.position.z}")
-
+        self.target_pose.pose.position = self.current_pos.pose.position
         self.target_pose.pose.orientation = self.current_pos.pose.orientation
 
         self.set_mode('OFFBOARD')
@@ -92,18 +92,21 @@ class CommNode(Node):
 
     def callback_land(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """RTL and land"""
-        #self.target_pose.pose.position.x = 0
-        #self.target_pose.pose.position.y = 0
-        #self.target_pose.pose.position.z = 0
-        #self.target_pose.pose.orientation = self.current_pos.pose.orientation
-        #
-        #dist = (self.target_pose.pose.position.x - self.current_pos.pose.position.x)**2 + (self.target_pose.pose.position.y - self.current_pos.pose.position.y)**2
-        #
-        #while dist > 0.1:
-        #    self.target_pose.header.stamp = self.get_clock().now().to_msg()
-        #    self.local_pos_pub.publish(self.target_pose)
-        #    dist = (self.target_pose.pose.position.x - self.current_pos.pose.position.x)**2 + (self.target_pose.pose.position.y - self.current_pos.pose.position.y)**2
+        # Set target to home pose exactly
+        """Return toward home XY/heading, then auto-land."""
 
+        if self.home_pose is None:
+            response.success = False
+            response.message = "No home pose available yet."
+            return response
+
+        # Step 1: Lock target XY and yaw to home, but keep current Z
+        self.target_pose.pose.position.x = self.home_pose.pose.position.x
+        self.target_pose.pose.position.y = self.home_pose.pose.position.y
+        self.target_pose.pose.position.z = self.current_pos.pose.position.z
+
+        self.target_pose.pose.orientation = self.home_pose.pose.orientation
+        
         req = SetMode.Request()
         req.custom_mode = 'AUTO.LAND'
         self.get_logger().info("Requesting AUTO.LAND...")
@@ -209,11 +212,10 @@ class CommNode(Node):
     def pos_callback(self, msg):
         """Get current position + orientation"""
         self.current_pos = msg
-
+        
         now = self.get_clock().now()
         if (now - self.last_pos_log_time).nanoseconds > 1e9:
-            #self.get_logger().info(f"[POSITION]: X: {self.current_pos.pose.position.x:.3f} | Y: {self.current_pos.pose.position.y:.3f} | Z: {self.current_pos.pose.position.z:.3f}")
-            self.get_logger().info("[POSITION]: TEST")
+            self.get_logger().info(f"[POSITION]: X: {self.current_pos.pose.position.x:.3f} | Y: {self.current_pos.pose.position.y:.3f} | Z: {self.current_pos.pose.position.z:.3f}")
             self.last_pos_log_time = now
 
 
@@ -224,10 +226,8 @@ class CommNode(Node):
         
         now = self.get_clock().now()
         if (now - self.last_timer_log_time).nanoseconds > 1e9:
-            self.get_logger().info(f"[POSITION]: X: {self.current_pos.pose.position.x:.3f} | Y: {self.current_pos.pose.position.y:.3f} | Z: {self.current_pos.pose.position.z:.3f}")
             self.get_logger().info(f"[TARGET]: X: {self.target_pose.pose.position.x:.3f} | Y: {self.target_pose.pose.position.y:.3f} | Z: {self.target_pose.pose.position.z:.3f}")
             self.last_timer_log_time = now
-
 
 def main(args=None):
     rclpy.init(args=args)
