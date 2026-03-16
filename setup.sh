@@ -26,6 +26,9 @@ tmux split-window -h -t $SESSION
 tmux select-pane -t 3
 tmux split-window -h -t $SESSION
 
+
+tmux select-layout even-horizontal
+
 # 5. Populate panes with text (but don't press Enter)
 # -t specifies the pane index, the string is the command
 tmux send-keys -t 0 "ros2 launch px4_autonomy_modules mavros.launch.py gcs_url:=udp://@"
