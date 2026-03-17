@@ -27,7 +27,7 @@ tmux select-pane -t 3
 tmux split-window -h -t $SESSION
 
 
-tmux select-layout even-horizontal
+#tmux select-layout even-horizontal
 
 # 5. Populate panes with text (but don't press Enter)
 # -t specifies the pane index, the string is the command
