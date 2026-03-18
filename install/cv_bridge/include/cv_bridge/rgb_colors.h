@@ -1,1 +1,0 @@
-/home/jetson/rob498_2026/capstone2026/ros2_ws/src/vision_opencv/cv_bridge/include/cv_bridge/rgb_colors.h
