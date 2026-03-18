@@ -5,10 +5,8 @@ from geometry_msgs.msg import PoseArray, Pose
 
 # Edit these waypoints for your space
 WAYPOINTS = [
-    (1.0, 0.0, 1.0),
-    (1.0, 1.0, 1.0),
-    (0.0, 1.0, 1.0),
-    (0.0, 0.0, 1.0),
+    (0.5, 0.0, 1.0),
+    (3.0, 0.0, 1.0),
 ]
 
 

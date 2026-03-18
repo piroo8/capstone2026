@@ -170,6 +170,8 @@ class ObstacleAvoidanceNode(Node):
             cmd.velocity.z = 0.0
             cmd.yaw = self.current_yaw
             self.cmd_pub.publish(cmd)
+            self.latest_cmd = None
+            self.latest_cmd_time = None
             return
 
         vx = self.latest_cmd.velocity.x

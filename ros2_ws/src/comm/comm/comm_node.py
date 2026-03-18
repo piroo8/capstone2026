@@ -6,16 +6,18 @@ from geometry_msgs.msg import PoseStamped, PoseArray, Pose
 from mavros_msgs.srv import CommandBool, SetMode, CommandLong
 from rclpy.qos import qos_profile_sensor_data
 import numpy as np
-from scipy.spatial.transform import Rotation as R
 
 MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
 
 LAUNCH_ALT = 0.5
 Z_OFFSET = 0.0
 RADIUS = 0.2
-MAX_SPEED = 0.5         # m/s horizontal
-MAX_SPEED_Z = 0.3       # m/s vertical
-APPROACH_SLOWDOWN = 0.5  # start slowing within this distance of waypoint
+RETURN_Z_TOL = 0.1
+MAX_SPEED = 0.5
+MAX_SPEED_Z = 0.3
+APPROACH_SLOWDOWN = 0.5
+MAX_YAW_RATE = 1.5  # rad/s (~30 deg/s)
+DT = 0.05  # timer period (20Hz)
 
 
 class CommNode(Node):
@@ -39,26 +41,27 @@ class CommNode(Node):
         self.waypoint_sub = self.create_subscription(PoseArray, 'rob498_drone_8/comm/waypoints', self._waypoint_callback, 10)
 
         # Publishers
-        # Position setpoint — used for launch and hover
         self.local_pos_pub = self.create_publisher(PoseStamped, 'mavros/setpoint_position/local', 10)
-        # Velocity setpoint — used during waypoint navigation (avoidance node intercepts this)
-        self.vel_pub = self.create_publisher(PositionTarget, 'mavros/setpoint_raw/local', 10) # mavros/setpoint_raw/local rob498_drone_8/cmd_vel
-        # Waypoint publisher
+        self.vel_pub = self.create_publisher(PositionTarget, 'rob498_drone_8/cmd_vel', 10)
+        self.direct_vel_pub = self.create_publisher(PositionTarget, 'mavros/setpoint_raw/local', 10)
         self.waypoint_pub = self.create_publisher(PoseArray, 'rob498_drone_8/comm/waypoints', 10)
 
         # Timer at 20Hz
-        self.timer = self.create_timer(0.05, self._timer_callback)
+        self.timer = self.create_timer(DT, self._timer_callback)
         self.last_target_log_time = self.get_clock().now()
         self.last_state_log_time = self.get_clock().now()
         self.last_pos_log_time = self.get_clock().now()
         self.last_nav_log_time = self.get_clock().now()
+        self.last_velocity_route = None
 
         # State
         self.current_pos = PoseStamped()
         self.current_yaw = 0.0
+        self.commanded_yaw = None  # None until first command, then tracks rate-limited yaw
         self.target_pose = PoseStamped()
         self.current_state = State()
         self.home_pose = None
+        self.return_target_z = None
 
         # Waypoints
         self.waypoints = []
@@ -69,7 +72,7 @@ class CommNode(Node):
         self.return_home_active = False
 
         # Control mode
-        self.use_velocity = False  # True during waypoint nav, False during launch/hover/land
+        self.use_velocity = False
 
         self.get_logger().info('Waiting for MAVROS services...')
         self.arming_client.wait_for_service()
@@ -77,10 +80,33 @@ class CommNode(Node):
         self.command_client.wait_for_service()
         self.get_logger().info('Initialization complete!')
 
+    # ── Yaw Helper ────────────────────────────────────────────
+
+    def _rate_limit_yaw(self, desired_yaw):
+        """Step commanded_yaw toward desired_yaw at MAX_YAW_RATE.
+        Returns the new commanded yaw."""
+        # Initialize commanded_yaw to current drone yaw on first call
+        if self.commanded_yaw is None:
+            self.commanded_yaw = self.current_yaw
+
+        error = desired_yaw - self.commanded_yaw
+        # Wrap to [-pi, pi] so we always take the short way around
+        error = np.arctan2(np.sin(error), np.cos(error))
+
+        max_step = MAX_YAW_RATE * DT
+        step = np.clip(error, -max_step, max_step)
+        self.commanded_yaw += step
+
+        # Keep commanded_yaw in [-pi, pi]
+        self.commanded_yaw = np.arctan2(
+            np.sin(self.commanded_yaw),
+            np.cos(self.commanded_yaw))
+
+        return self.commanded_yaw
+
     # ── Services ──────────────────────────────────────────────
 
     def callback_launch(self, request, response):
-        """Takeoff in place to LAUNCH_ALT using position control."""
         if self.home_pose is None:
             self.home_pose = PoseStamped()
             self.home_pose.pose = self.current_pos.pose
@@ -90,11 +116,13 @@ class CommNode(Node):
                 f"Z: {self.current_pos.pose.position.z:.3f}")
 
         self.use_velocity = False
+        self.commanded_yaw = None  # Reset so it picks up current yaw when velocity mode starts
 
         self.target_pose.pose.position.x = self.current_pos.pose.position.x
         self.target_pose.pose.position.y = self.current_pos.pose.position.y
         self.target_pose.pose.position.z = self.current_pos.pose.position.z + LAUNCH_ALT
         self.target_pose.pose.orientation = self.current_pos.pose.orientation
+        self.return_target_z = self.home_pose.pose.position.z + LAUNCH_ALT
 
         self.get_logger().info(
             f"[LAUNCH]: Takeoff to target | "
@@ -117,6 +145,9 @@ class CommNode(Node):
             response.message = "No waypoints received"
             return response
 
+        # Initialize commanded_yaw to current yaw before switching to velocity
+        self.commanded_yaw = self.current_yaw
+
         # Publish a hold command immediately to prevent OFFBOARD dropout
         cmd = PositionTarget()
         cmd.header.stamp = self.get_clock().now().to_msg()
@@ -133,8 +164,8 @@ class CommNode(Node):
         cmd.velocity.x = 0.0
         cmd.velocity.y = 0.0
         cmd.velocity.z = 0.0
-        cmd.yaw = self.current_yaw
-        self.vel_pub.publish(cmd)
+        cmd.yaw = self.commanded_yaw
+        self._publish_velocity_command(cmd)
 
         self.current_wp_index = 0
         self.test_active = True
@@ -146,7 +177,6 @@ class CommNode(Node):
         return response
 
     def callback_land(self, request, response):
-        """Return home and land."""
         if self.home_pose is None:
             response.success = False
             response.message = "No home pose available yet."
@@ -157,11 +187,14 @@ class CommNode(Node):
             response.message = "Return home not active"
             return response
 
-        dx = self.home_pose.pose.position.x - self.current_pos.pose.position.x
-        dy = self.home_pose.pose.position.y - self.current_pos.pose.position.y
-        dist = np.sqrt(dx**2 + dy**2)
+        home_x, home_y, home_z = self._get_return_home_target()
+        dx = home_x - self.current_pos.pose.position.x
+        dy = home_y - self.current_pos.pose.position.y
+        dz = home_z - self.current_pos.pose.position.z
+        dist_xy = np.sqrt(dx**2 + dy**2)
+        dist_z = abs(dz)
 
-        if dist < self.target_radius:
+        if dist_xy < self.target_radius and dist_z < RETURN_Z_TOL:
             self.get_logger().info("[MISSION]: Home reached. Initiating landing.")
             req = SetMode.Request()
             req.custom_mode = 'AUTO.LAND'
@@ -172,15 +205,17 @@ class CommNode(Node):
             response.message = "Sent AUTO.LAND command."
         else:
             response.success = False
-            response.message = f"Still {dist:.2f}m from home"
+            response.message = (
+                f"Still {dist_xy:.2f}m from home XY and {dist_z:.2f}m from return altitude"
+            )
 
         return response
 
     def callback_abort(self, request, response):
-        """Emergency land."""
         self.test_active = False
         self.return_home_active = False
         self.use_velocity = False
+        self.commanded_yaw = None
 
         req = SetMode.Request()
         req.custom_mode = 'AUTO.LAND'
@@ -193,8 +228,6 @@ class CommNode(Node):
     # ── Waypoint Navigation (Velocity Control) ───────────────
 
     def _compute_velocity_to_target(self, target_x, target_y, target_z):
-        """Compute velocity vector toward a target position.
-        Returns a PositionTarget message with velocity setpoint."""
         dx = target_x - self.current_pos.pose.position.x
         dy = target_y - self.current_pos.pose.position.y
         dz = target_z - self.current_pos.pose.position.z
@@ -202,7 +235,7 @@ class CommNode(Node):
         dist_xy = np.sqrt(dx**2 + dy**2)
         dist_z = abs(dz)
 
-        # Horizontal velocity — slow down near waypoint
+        # Horizontal velocity
         if dist_xy < 0.01:
             vx, vy = 0.0, 0.0
         else:
@@ -219,8 +252,14 @@ class CommNode(Node):
             speed_z = np.clip(speed_z, 0.0, MAX_SPEED_Z)
             vz = np.sign(dz) * speed_z
 
-        # Compute yaw toward target
-        yaw = np.arctan2(dy, dx)
+        # Desired yaw: face toward target if far enough, otherwise hold current commanded yaw
+        if dist_xy > 0.1:
+            desired_yaw = np.arctan2(dy, dx)
+        else:
+            desired_yaw = self.commanded_yaw if self.commanded_yaw is not None else self.current_yaw
+
+        # Rate-limited yaw
+        yaw = self._rate_limit_yaw(desired_yaw)
 
         cmd = PositionTarget()
         cmd.header.stamp = self.get_clock().now().to_msg()
@@ -249,12 +288,12 @@ class CommNode(Node):
             self.test_active = False
             self.return_home_active = True
             self.use_velocity = True
+            self.return_target_z = self.home_pose.pose.position.z + LAUNCH_ALT
             self.get_logger().info("[MISSION]: All waypoints reached. Returning home.")
             return
 
         wp = self.waypoints[self.current_wp_index]
 
-        # Check distance to waypoint
         dx = wp[0] - self.current_pos.pose.position.x
         dy = wp[1] - self.current_pos.pose.position.y
         dz = wp[2] - self.current_pos.pose.position.z
@@ -281,11 +320,14 @@ class CommNode(Node):
         if not self.return_home_active:
             return
 
-        dx = self.home_pose.pose.position.x - self.current_pos.pose.position.x
-        dy = self.home_pose.pose.position.y - self.current_pos.pose.position.y
-        dist = np.sqrt(dx**2 + dy**2)
+        home_x, home_y, home_z = self._get_return_home_target()
+        dx = home_x - self.current_pos.pose.position.x
+        dy = home_y - self.current_pos.pose.position.y
+        dz = home_z - self.current_pos.pose.position.z
+        dist_xy = np.sqrt(dx**2 + dy**2)
+        dist_z = abs(dz)
 
-        if dist < self.target_radius:
+        if dist_xy < self.target_radius and dist_z < RETURN_Z_TOL:
             self.get_logger().info("[MISSION]: Home reached. Initiating landing.")
             req = SetMode.Request()
             req.custom_mode = 'AUTO.LAND'
@@ -299,25 +341,29 @@ class CommNode(Node):
         if self.test_active:
             self.update_waypoint_navigation()
 
-            # Publish velocity toward current waypoint
             if self.current_wp_index < len(self.waypoints):
                 wp = self.waypoints[self.current_wp_index]
                 cmd = self._compute_velocity_to_target(wp[0], wp[1], wp[2])
-                self.vel_pub.publish(cmd)
+                self._publish_velocity_command(cmd)
 
         elif self.return_home_active:
             self.update_return_home()
 
-            # Publish velocity toward home
-            if self.home_pose is not None:
-                cmd = self._compute_velocity_to_target(
-                    self.home_pose.pose.position.x,
-                    self.home_pose.pose.position.y,
-                    self.current_pos.pose.position.z)
-                self.vel_pub.publish(cmd)
+            if self.return_home_active and self.home_pose is not None:
+                home_x, home_y, home_z = self._get_return_home_target()
+
+                # Compute desired home yaw
+                q = self.home_pose.pose.orientation
+                siny = 2.0 * (q.w * q.z + q.x * q.y)
+                cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+                home_yaw = np.arctan2(siny, cosy)
+
+                cmd = self._compute_velocity_to_target(home_x, home_y, home_z)
+                # Override yaw with rate-limited home yaw
+                cmd.yaw = self._rate_limit_yaw(home_yaw)
+                self._publish_velocity_command(cmd)
 
         else:
-            # Launch / hover — use position control
             self.target_pose.header.stamp = self.get_clock().now().to_msg()
             self.local_pos_pub.publish(self.target_pose)
 
@@ -349,7 +395,6 @@ class CommNode(Node):
         self.current_pos = msg
         self.current_pos.pose.position.z += Z_OFFSET
 
-        # Extract yaw
         q = msg.pose.orientation
         siny = 2.0 * (q.w * q.z + q.x * q.y)
         cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
@@ -368,6 +413,35 @@ class CommNode(Node):
 
         self.waypoints_received = True
         self.get_logger().info(f"[WAYPOINTS]: Stored {len(self.waypoints)} waypoints successfully")
+
+    def _get_return_home_target(self):
+        if self.home_pose is None:
+            return 0.0, 0.0, 0.0
+
+        if self.return_target_z is None:
+            self.return_target_z = self.home_pose.pose.position.z + LAUNCH_ALT
+
+        return (
+            self.home_pose.pose.position.x,
+            self.home_pose.pose.position.y,
+            self.return_target_z,
+        )
+
+    def _publish_velocity_command(self, cmd):
+        use_obstacle_node = self.vel_pub.get_subscription_count() > 0
+        route = 'obstacle_node' if use_obstacle_node else 'direct_mavros'
+
+        if route != self.last_velocity_route:
+            if use_obstacle_node:
+                self.get_logger().info("[CONTROL]: Routing velocity commands through obstacle_node")
+            else:
+                self.get_logger().info("[CONTROL]: obstacle_node not detected, sending velocity directly to MAVROS")
+            self.last_velocity_route = route
+
+        if use_obstacle_node:
+            self.vel_pub.publish(cmd)
+        else:
+            self.direct_vel_pub.publish(cmd)
 
     # ── Arming / Mode ─────────────────────────────────────────
 

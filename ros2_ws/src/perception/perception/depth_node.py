@@ -9,10 +9,12 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-MIN_DEPTH = 0.2 # meters
+MIN_DEPTH = 0.1 # meters
 MAX_DEPTH = 5.0 # meters
 SKIP_FRAMES = 3 # process every Nth frame for performance
 NUM_DISPARITIES = 64
+# Manual crop for the invalid left disparity strip. Tune this in pixels.
+LEFT_CROP_PIXELS = 62
 
 class DepthNode(Node):
     def __init__(self):
@@ -93,6 +95,7 @@ class DepthNode(Node):
         # Frame skip — process every Nth frame
         self.frame_count = 0
         self.process_every_n = SKIP_FRAMES
+        self.crop_start_col = 0
 
         self.get_logger().info('Waiting for camera info and TF...')
 
@@ -163,6 +166,8 @@ class DepthNode(Node):
         self.right_xmap, self.right_ymap = cv2.fisheye.initUndistortRectifyMap(
             self.K2, self.D2, R2, K2_scaled, scaled_size, cv2.CV_32FC1)
 
+        self.crop_start_col = max(0, min(int(LEFT_CROP_PIXELS), scaled_size[0] - 1))
+
         self.fx_scaled = K1_scaled[0, 0]
         self.scaled_size = scaled_size
 
@@ -176,7 +181,8 @@ class DepthNode(Node):
         self.setup_timer.cancel()
         self.get_logger().info(
             f'Rectification maps computed. Baseline: {self.baseline:.4f}m, '
-            f'Scale: {self.scale}, Output: {scaled_size[0]}x{scaled_size[1]}')
+            f'Scale: {self.scale}, Crop left: {self.crop_start_col}px, '
+            f'Output: {scaled_size[0] - self.crop_start_col}x{scaled_size[1]}')
 
     def _sync_cb(self, left_msg, right_msg):
         if not self.maps_computed:
@@ -208,10 +214,17 @@ class DepthNode(Node):
 
         # Compute depth
         fx = self.fx_scaled
-        depth = np.where(
-            disparity > 0,
-            (fx * self.baseline) / disparity,
-            0).astype(np.float32)
+        depth = np.zeros_like(disparity, dtype=np.float32)
+        np.divide(
+            fx * self.baseline,
+            disparity,
+            out=depth,
+            where=disparity > 0.0,
+        )
+
+        if self.crop_start_col > 0:
+            disparity = disparity[:, self.crop_start_col:]
+            depth = depth[:, self.crop_start_col:]
 
         # Publish raw depth
         depth_msg = self.bridge.cv2_to_imgmsg(depth, encoding='32FC1')
