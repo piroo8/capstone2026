@@ -34,9 +34,9 @@ tmux split-window -h -t $SESSION
 tmux send-keys -t 0 "ros2 launch px4_autonomy_modules mavros.launch.py gcs_url:=udp://@"
 tmux send-keys -t 1 "ros2 launch realsense2_camera rs_launch.py"
 tmux send-keys -t 2 "ros2 launch vision_bdg vision_bdg.launch.py use_vicon:=false use_realsense:=true"
-tmux send-keys -t 3 "ros2 run flight3 comm_node"
-tmux send-keys -t 4 "ros2 service call /rob498_drone_8/comm/launch std_srvs/srv/Trigger {}"
-tmux send-keys -t 5 "ros2 service call /rob498_drone_8/comm/test std_srvs/srv/Trigger {}"
+tmux send-keys -t 3 "ros2 run comm comm_node"
+tmux send-keys -t 4 "ros2 run waypoint_publisher waypoint_publisher"
+tmux send-keys -t 5 "ros2 service call /rob498_drone_8/comm/launch std_srvs/srv/Trigger {}"
 
 # 6. Attach to the session
 tmux attach-session -t $SESSION

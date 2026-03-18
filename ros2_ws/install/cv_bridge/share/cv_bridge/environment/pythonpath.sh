@@ -1,3 +1,1 @@
-# generated from ament_package/template/environment_hook/pythonpath.sh.in
-
-ament_prepend_unique_value PYTHONPATH "$AMENT_CURRENT_PREFIX/lib/python3.8/site-packages"
+/home/jetson/rob498_2026/capstone2026/ros2_ws/build/cv_bridge/ament_cmake_environment_hooks/pythonpath.sh

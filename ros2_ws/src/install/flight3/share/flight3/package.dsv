@@ -1,0 +1,9 @@
+source;share/flight3/hook/pythonpath.ps1
+source;share/flight3/hook/pythonpath.dsv
+source;share/flight3/hook/pythonpath.sh
+source;share/flight3/hook/ament_prefix_path.ps1
+source;share/flight3/hook/ament_prefix_path.dsv
+source;share/flight3/hook/ament_prefix_path.sh
+source;../../build/flight3/share/flight3/hook/pythonpath_develop.ps1
+source;../../build/flight3/share/flight3/hook/pythonpath_develop.dsv
+source;../../build/flight3/share/flight3/hook/pythonpath_develop.sh
