@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image, CameraInfo
+from stereo_msgs.msg import DisparityImage
 from cv_bridge import CvBridge
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 from tf2_ros import Buffer, TransformListener
@@ -84,8 +85,10 @@ class DepthNode(Node):
         self.sync.registerCallback(self._sync_cb)
 
         # Publishers
-        self.depth_pub = self.create_publisher(
-            Image, '/stereo/depth', qos_profile_sensor_data)
+        self.disp_pub = self.create_publisher(
+            DisparityImage, 'disparity', qos_profile_sensor_data)
+        self.cam_info_pub = self.create_publisher(
+            CameraInfo, 'disparity/camera_info', qos_profile_sensor_data)
         self.disp_vis_pub = self.create_publisher(
             Image, '/stereo/disp_vis', 10)
 
@@ -169,6 +172,9 @@ class DepthNode(Node):
         self.crop_start_col = max(0, min(int(LEFT_CROP_PIXELS), scaled_size[0] - 1))
 
         self.fx_scaled = K1_scaled[0, 0]
+        self.fy_scaled = K1_scaled[1, 1]
+        self.cx_scaled = K1_scaled[0, 2]
+        self.cy_scaled = K1_scaled[1, 2]
         self.scaled_size = scaled_size
 
         self.min_disp = (self.fx_scaled * self.baseline) / MAX_DEPTH
@@ -208,28 +214,41 @@ class DepthNode(Node):
         left_rect = self.clahe.apply(left_rect)
         right_rect = self.clahe.apply(right_rect)
 
-        # Compute disparity
+        # Compute disparity (int16 in 1/16 pixel units → float32 pixels)
+        # Invalid pixels (no stereo match) come out as minDisparity-1 = -1/16 ≈ -0.0625.
+        # Zero them out here so occupancy_node's min_disparity filter drops them cleanly.
+        # We do NOT spatially crop the left invalid strip: cropping would shift cx away
+        # from W/2 and break occupancy_node's back-projection. Zeroing is sufficient.
         disparity = self.stereo.compute(left_rect, right_rect).astype(np.float32) / 16.0
-        disparity = np.where((disparity > self.min_disp) & (disparity < self.max_disp), disparity, 0)
+        disparity = np.where((disparity > self.min_disp) & (disparity < self.max_disp), disparity, 0.0)
 
-        # Compute depth
-        fx = self.fx_scaled
-        depth = np.zeros_like(disparity, dtype=np.float32)
-        np.divide(
-            fx * self.baseline,
-            disparity,
-            out=depth,
-            where=disparity > 0.0,
-        )
+        # Build stereo_msgs/DisparityImage
+        disp_image_msg = self.bridge.cv2_to_imgmsg(disparity, encoding='32FC1')
+        disp_image_msg.header = left_msg.header
 
-        if self.crop_start_col > 0:
-            disparity = disparity[:, self.crop_start_col:]
-            depth = depth[:, self.crop_start_col:]
+        disp_msg = DisparityImage()
+        disp_msg.header        = left_msg.header
+        disp_msg.image         = disp_image_msg
+        disp_msg.f             = self.fx_scaled   # focal length of rectified image (pixels)
+        disp_msg.t             = self.baseline     # baseline (metres); occupancy_node takes abs()
+        disp_msg.min_disparity = float(self.min_disp)
+        disp_msg.max_disparity = float(self.max_disp)
+        disp_msg.delta_d       = 1.0 / 16.0       # SGBM sub-pixel resolution
 
-        # Publish raw depth
-        depth_msg = self.bridge.cv2_to_imgmsg(depth, encoding='32FC1')
-        depth_msg.header = left_msg.header
-        self.depth_pub.publish(depth_msg)
+        self.disp_pub.publish(disp_msg)
+
+        # Publish rectified camera info so downstream nodes get the true cx/cy
+        # rather than assuming the principal point is at image centre.
+        cam_info = CameraInfo()
+        cam_info.header = left_msg.header
+        cam_info.width  = self.scaled_size[0]
+        cam_info.height = self.scaled_size[1]
+        cam_info.k = [
+            self.fx_scaled, 0.0,            self.cx_scaled,
+            0.0,            self.fy_scaled, self.cy_scaled,
+            0.0,            0.0,            1.0,
+        ]
+        self.cam_info_pub.publish(cam_info)
 
         # Publish disparity visualization
         if self.disp_vis_pub.get_subscription_count() > 0:

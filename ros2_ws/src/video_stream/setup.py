@@ -1,6 +1,6 @@
 from setuptools import setup
 
-package_name = 'comm'
+package_name = 'video_stream'
 
 setup(
     name=package_name,
@@ -20,9 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'comm_node = comm.comm_node:main',
-            'occupancy_node = comm.occupancy_node:main',
-            'local_planner_node = comm.local_planner_node:main'
+            'video_node = video_stream.video_stream:main'
         ],
     },
 )

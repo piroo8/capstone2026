@@ -10,14 +10,16 @@ import numpy as np
 MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
 
 LAUNCH_ALT = 0.5
-Z_OFFSET = 0.0
-RADIUS = 0.2
-RETURN_Z_TOL = 0.1
-MAX_SPEED = 0.5
+Z_OFFSET = -0.111
+RADIUS = 0.05
+RETURN_Z_TOL = 0.05
+MAX_SPEED = 0.25
 MAX_SPEED_Z = 0.3
 APPROACH_SLOWDOWN = 0.5
-MAX_YAW_RATE = 1.5  # rad/s (~30 deg/s)
-DT = 0.05  # timer period (20Hz)
+MAX_YAW_RATE = 3.1415
+DT = 0.05
+DEBUG_LOGGING = True
+DEBUG_LOG_PERIOD_S = 1.0
 
 
 class CommNode(Node):
@@ -53,6 +55,13 @@ class CommNode(Node):
         self.last_pos_log_time = self.get_clock().now()
         self.last_nav_log_time = self.get_clock().now()
         self.last_velocity_route = None
+
+        # Debug logging is throttled so it stays readable in tmux and cheap onboard.
+        self.declare_parameter('debug_logging', DEBUG_LOGGING)
+        self.declare_parameter('debug_log_period_s', DEBUG_LOG_PERIOD_S)
+        self.debug_logging = bool(self.get_parameter('debug_logging').value)
+        self.debug_log_period_s = float(self.get_parameter('debug_log_period_s').value)
+        self.last_debug_log_time = None
 
         # State
         self.current_pos = PoseStamped()
@@ -344,6 +353,7 @@ class CommNode(Node):
             if self.current_wp_index < len(self.waypoints):
                 wp = self.waypoints[self.current_wp_index]
                 cmd = self._compute_velocity_to_target(wp[0], wp[1], wp[2])
+                self._log_raw_velocity_command(wp, cmd)
                 self._publish_velocity_command(cmd)
 
         elif self.return_home_active:
@@ -361,6 +371,8 @@ class CommNode(Node):
                 cmd = self._compute_velocity_to_target(home_x, home_y, home_z)
                 # Override yaw with rate-limited home yaw
                 cmd.yaw = self._rate_limit_yaw(home_yaw)
+                home_wp = np.array([home_x, home_y, home_z])
+                self._log_raw_velocity_command(home_wp, cmd)
                 self._publish_velocity_command(cmd)
 
         else:
@@ -379,6 +391,10 @@ class CommNode(Node):
                     f"[TARGET]: X: {self.target_pose.pose.position.x:.3f} | "
                     f"Y: {self.target_pose.pose.position.y:.3f} | "
                     f"Z: {self.target_pose.pose.position.z:.3f}")
+                self.get_logger().info(
+                    f"[POSITION]: X: {self.current_pos.pose.position.x:.3f} | "
+                    f"Y: {self.current_pos.pose.position.y:.3f} | "
+                    f"Z: {self.current_pos.pose.position.z:.3f}")
             self.last_target_log_time = now
 
     # ── Callbacks ─────────────────────────────────────────────
@@ -427,18 +443,57 @@ class CommNode(Node):
             self.return_target_z,
         )
 
+    def _get_velocity_route(self):
+        use_local_planner = self.vel_pub.get_subscription_count() > 0
+        return 'local_planner_node' if use_local_planner else 'direct_mavros'
+
+    def _should_log_debug(self):
+        if not self.debug_logging:
+            return False
+
+        now = self.get_clock().now()
+        if self.last_debug_log_time is None:
+            self.last_debug_log_time = now
+            return True
+
+        elapsed_s = (now - self.last_debug_log_time).nanoseconds / 1e9
+        if elapsed_s >= self.debug_log_period_s:
+            self.last_debug_log_time = now
+            return True
+
+        return False
+
+    def _log_raw_velocity_command(self, target_xyz, cmd):
+        if not self._should_log_debug():
+            return
+
+        route = self._get_velocity_route()
+
+        # This is the waypoint follower's unmodified command before obstacle handling.
+        self.get_logger().info(
+            '[CMD_RAW] '
+            f'wp_index={self.current_wp_index + 1} '
+            f'target=({target_xyz[0]:.3f}, {target_xyz[1]:.3f}, {target_xyz[2]:.3f}) '
+            f'pos=({self.current_pos.pose.position.x:.3f}, '
+            f'{self.current_pos.pose.position.y:.3f}, '
+            f'{self.current_pos.pose.position.z:.3f}) '
+            f'vel=({cmd.velocity.x:.3f}, {cmd.velocity.y:.3f}, {cmd.velocity.z:.3f}) '
+            f'yaw={cmd.yaw:.3f} '
+            f'route={route}'
+        )
+
     def _publish_velocity_command(self, cmd):
-        use_obstacle_node = self.vel_pub.get_subscription_count() > 0
-        route = 'obstacle_node' if use_obstacle_node else 'direct_mavros'
+        route = self._get_velocity_route()
+        use_local_planner = route == 'local_planner_node'
 
         if route != self.last_velocity_route:
-            if use_obstacle_node:
-                self.get_logger().info("[CONTROL]: Routing velocity commands through obstacle_node")
+            if use_local_planner:
+                self.get_logger().info("[CONTROL]: Routing velocity commands through local_planner_node")
             else:
-                self.get_logger().info("[CONTROL]: obstacle_node not detected, sending velocity directly to MAVROS")
+                self.get_logger().info("[CONTROL]: local_planner_node not detected, sending velocity directly to MAVROS")
             self.last_velocity_route = route
 
-        if use_obstacle_node:
+        if use_local_planner:
             self.vel_pub.publish(cmd)
         else:
             self.direct_vel_pub.publish(cmd)

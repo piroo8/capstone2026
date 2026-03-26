@@ -23,3 +23,4 @@
       - setpoint_position
       - setpoint_raw
       - setpoint_velocity
+      - param
