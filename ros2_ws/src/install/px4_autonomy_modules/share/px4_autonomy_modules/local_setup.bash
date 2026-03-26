@@ -1,1 +1,0 @@
-/home/jetson/rob498_2026/capstone2026/ros2_ws/src/build/px4_autonomy_modules/ament_cmake_environment_hooks/local_setup.bash
