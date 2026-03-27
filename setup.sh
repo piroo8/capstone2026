@@ -2,7 +2,7 @@
 set -e
 
 SESSION="drone"
-GCS_IP="10.42.0.120"
+GCS_IP="10.42.0.123"
 
 # kill old session if it exists
 if tmux has-session -t "$SESSION" 2>/dev/null; then
@@ -57,7 +57,9 @@ tmux send-keys -t 6  "ros2 run comm comm_node"
 tmux send-keys -t 7  "ros2 run waypoint_publisher waypoint_publisher"
 tmux send-keys -t 8  "ros2 service call /rob498_drone_8/comm/launch std_srvs/srv/Trigger {}"
 tmux send-keys -t 9  "ros2 service call /rob498_drone_8/comm/test std_srvs/srv/Trigger {}"
-tmux send-keys -t 10 "./video.sh \"$GCS_IP\""
+tmux send-keys -t 10  "ros2 service call /rob498_drone_8/comm/abort std_srvs/srv/Trigger {}"
+tmux send-keys -t 11  ros2 bag record -a
+#tmux send-keys -t 10 "./video.sh \"$GCS_IP\""
 # pane 11 intentionally left blank
 
 # 8. Attach

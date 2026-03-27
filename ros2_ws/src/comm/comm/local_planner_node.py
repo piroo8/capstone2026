@@ -61,12 +61,12 @@ class LocalPlannerNode(Node):
     def __init__(self):
         super().__init__('local_planner_node')
 
-        self.declare_parameter('lookahead_dist', 2.0)   # m - how far ahead to aim
-        self.declare_parameter('safety_radius', 0.5)    # m - body clearance required
-        self.declare_parameter('min_gap_width', 1.0)    # m - narrower gaps ignored
+        self.declare_parameter('lookahead_dist', 0.5)   # m - how far ahead to aim
+        self.declare_parameter('safety_radius', 0.05)   # m - narrower gaps ignored_safety of 5 cm on each side on the 30
+        self.declare_parameter('min_gap_width', 0.30)   # m - body clearance required 
         self.declare_parameter('obstacle_thresh', 50)   # occupancy value = occupied
         self.declare_parameter('planner_rate', 20.0)    # Hz - match CommNode timer
-        self.declare_parameter('max_speed', 0.25)       # m/s cap (match CommNode MAX_SPEED)
+        self.declare_parameter('max_speed', 0.15)       # m/s cap (match CommNode MAX_SPEED)
         self.declare_parameter('debug_logging', True)
         self.declare_parameter('debug_log_period_s', 1.0)
 
