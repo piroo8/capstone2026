@@ -1,3 +1,0 @@
-[console_scripts]
-comm_node = flight2.comm_node_skeleton:main
-

@@ -10,7 +10,6 @@ from rclpy.qos import (
 )
 from rclpy.time import Time
 from geometry_msgs.msg import PoseStamped
-from mavros_msgs.msg import PositionTarget
 from nav_msgs.msg import OccupancyGrid
 import numpy as np
 
@@ -31,42 +30,43 @@ class LocalPlannerNode(Node):
     ----------
     occupancy_node/occupancy_grid  - local 2-D grid from OccupancyNode
     mavros/local_position/pose     - current drone pose (map/ENU frame)
-    rob498_drone_8/cmd_vel         - PositionTarget from CommNode
+    rob498_drone_8/cmd_pose        - PoseStamped target from CommNode.
                                      CommNode auto-routes here when this node
-                                     is subscribed (see _publish_velocity_command).
+                                     is subscribed (see _timer_callback in CommNode).
 
     Publishes
     ---------
-    mavros/setpoint_raw/local      - PositionTarget forwarded to MAVROS.
-                                     Passthrough when clear; avoidance vx/vy
-                                     substituted when blocked. yaw and vz are
-                                     always taken from CommNode's command.
+    mavros/setpoint_position/local - PoseStamped forwarded to MAVROS.
+                                     Passthrough when path clear; intermediate
+                                     position setpoint substituted when blocked.
+                                     Altitude (z) and orientation are always taken
+                                     from CommNode's target pose.
 
     Algorithm
     ---------
     Each timer tick:
-    1. Derive intended heading from CommNode's vx/vy.
+    1. Derive intended heading from current_pose -> desired_pose direction vector.
        Project a point at lookahead_dist in that direction -> target_col in grid.
     2. Build a per-column clearance profile: forward distance (m) to nearest
        occupied cell per column (inf = fully clear).
     3. Inflate clearance inward by safety_radius - rejects corridors too narrow
        for the drone body.
-    4. If the corridor around target_col is clear: passthrough CommNode's
-       PositionTarget unchanged (preserves yaw, vz, type_mask).
+    4. If the corridor around target_col is clear: passthrough desired_pose
+       unchanged (preserves altitude and orientation from CommNode).
     5. Otherwise find contiguous passable gaps (width >= min_gap_width), pick the
-       one closest to the intended direction, override vx/vy only.
-    6. No gap -> zero vx/vy, hold yaw/vz from CommNode (drone stops laterally).
+       one closest to the intended direction, compute intermediate position setpoint
+       at lookahead_dist ahead offset laterally toward the gap.
+    6. No gap -> hold current XY, maintain desired altitude (drone stops laterally).
     """
 
     def __init__(self):
         super().__init__('local_planner_node')
 
-        self.declare_parameter('lookahead_dist', 0.5)   # m - how far ahead to aim
-        self.declare_parameter('safety_radius', 0.05)   # m - narrower gaps ignored_safety of 5 cm on each side on the 30
-        self.declare_parameter('min_gap_width', 0.30)   # m - body clearance required 
+        self.declare_parameter('lookahead_dist', 0.5)   # m - intermediate waypoint distance
+        self.declare_parameter('safety_radius', 0.05)   # m - narrower gaps ignored (5 cm each side)
+        self.declare_parameter('min_gap_width', 0.30)   # m - body clearance required
         self.declare_parameter('obstacle_thresh', 50)   # occupancy value = occupied
         self.declare_parameter('planner_rate', 20.0)    # Hz - match CommNode timer
-        self.declare_parameter('max_speed', 0.15)       # m/s cap (match CommNode MAX_SPEED)
         self.declare_parameter('debug_logging', True)
         self.declare_parameter('debug_log_period_s', 1.0)
 
@@ -74,14 +74,13 @@ class LocalPlannerNode(Node):
         self.safety_r = self.get_parameter('safety_radius').value
         self.min_gap_w = self.get_parameter('min_gap_width').value
         self.occ_thresh = self.get_parameter('obstacle_thresh').value
-        self.max_speed = self.get_parameter('max_speed').value
         rate = self.get_parameter('planner_rate').value
         self.debug_logging = bool(self.get_parameter('debug_logging').value)
         self.debug_log_period_s = float(self.get_parameter('debug_log_period_s').value)
 
         self.grid_msg = None
         self.current_pose = None
-        self.desired_cmd = None   # Latest PositionTarget from CommNode.
+        self.desired_pose = None   # Latest PoseStamped target from CommNode.
         self.last_passthrough_reason = None
         self.last_debug_log_time = None
         self.last_plan_mode = None
@@ -91,12 +90,12 @@ class LocalPlannerNode(Node):
         self.pose_sub = self.create_subscription(
             PoseStamped, 'mavros/local_position/pose', self._pose_cb, qos_profile_sensor_data)
         # Subscribing here triggers CommNode's routing logic:
-        # _publish_velocity_command checks get_subscription_count() on this topic.
+        # _timer_callback checks get_subscription_count() on rob498_drone_8/cmd_pose.
         self.cmd_sub = self.create_subscription(
-            PositionTarget, 'rob498_drone_8/cmd_vel', self._cmd_cb, 10)
+            PoseStamped, 'rob498_drone_8/cmd_pose', self._cmd_cb, 10)
 
         self.setpoint_pub = self.create_publisher(
-            PositionTarget, 'mavros/setpoint_raw/local', 10)
+            PoseStamped, 'mavros/setpoint_position/local', 10)
 
         self.timer = self.create_timer(1.0 / rate, self._plan)
         self.get_logger().info('LocalPlannerNode ready.')
@@ -108,25 +107,25 @@ class LocalPlannerNode(Node):
     def _pose_cb(self, msg: PoseStamped):
         self.current_pose = msg
 
-    def _cmd_cb(self, msg: PositionTarget):
-        self.desired_cmd = msg
-        # If planner inputs are not ready yet, keep MAVROS fed with the raw command.
+    def _cmd_cb(self, msg: PoseStamped):
+        self.desired_pose = msg
+        # If planner inputs are not ready yet, keep MAVROS fed with the raw target.
         if self.grid_msg is None or self.current_pose is None:
             self._publish_passthrough(msg)
 
     # ------------------------------------------------------------------ main loop
     def _plan(self):
-        if self.desired_cmd is None:
+        if self.desired_pose is None:
             return
 
         if self.grid_msg is None:
-            self._log_plan('missing_inputs', self.desired_cmd, self.desired_cmd, reason='occupancy_grid_missing')
-            self._publish_passthrough(self.desired_cmd)
+            self._log_plan('missing_inputs', self.desired_pose, self.desired_pose, reason='occupancy_grid_missing')
+            self._publish_passthrough(self.desired_pose)
             return
 
         if self.current_pose is None:
-            self._log_plan('missing_inputs', self.desired_cmd, self.desired_cmd, reason='vehicle_pose_missing')
-            self._publish_passthrough(self.desired_cmd)
+            self._log_plan('missing_inputs', self.desired_pose, self.desired_pose, reason='vehicle_pose_missing')
+            self._publish_passthrough(self.desired_pose)
             return
 
         self.last_passthrough_reason = None
@@ -158,35 +157,32 @@ class LocalPlannerNode(Node):
 
         if direct_clear and target_fwd > 0:
             self._log_plan(
-                'passthrough', self.desired_cmd, self.desired_cmd,
+                'passthrough', self.desired_pose, self.desired_pose,
                 closest_dist_m=closest_dist_m,
                 closest_offset_m=closest_offset_m,
                 closest_side=closest_side,
                 direct_clear=direct_clear,
                 best_col=None,
             )
-            self.setpoint_pub.publish(self.desired_cmd)
+            self.setpoint_pub.publish(self.desired_pose)
             return
 
         # --- 5. Gap finding -----------------------------------------------
         passable = inflated >= self.lookahead
         best_col = _best_gap_center(passable, W, target_col, min_gap_cells)
 
-        cmd_speed = math.hypot(self.desired_cmd.velocity.x, self.desired_cmd.velocity.y)
-        avoid_speed = min(cmd_speed or self.max_speed, self.max_speed)
-
         if best_col is not None:
             right_m = (best_col - W / 2.0) * res
-            out = self._override_velocity(self.lookahead, right_m, avoid_speed)
+            out = self._intermediate_position(self.lookahead, right_m)
             mode = 'avoid'
         else:
-            # --- 6. No gap - stop laterally, hold yaw/vz ------------------
+            # --- 6. No gap - hold XY, maintain desired altitude -----------
             self.get_logger().warn('No passable gap found - stopping.')
-            out = self._override_velocity(0.0, 0.0, 0.0)
+            out = self._hold_position()
             mode = 'stop'
 
         self._log_plan(
-            mode, self.desired_cmd, out,
+            mode, self.desired_pose, out,
             closest_dist_m=closest_dist_m,
             closest_offset_m=closest_offset_m,
             closest_side=closest_side,
@@ -195,17 +191,12 @@ class LocalPlannerNode(Node):
         )
         self.setpoint_pub.publish(out)
 
-    def _publish_passthrough(self, cmd: PositionTarget):
-        # Keep the original command intact when the planner cannot safely modify it yet.
-        passthrough = PositionTarget()
+    def _publish_passthrough(self, cmd: PoseStamped):
+        # Keep the original target intact when the planner cannot safely modify it yet.
+        passthrough = PoseStamped()
         passthrough.header.stamp = self.get_clock().now().to_msg()
-        passthrough.coordinate_frame = cmd.coordinate_frame
-        passthrough.type_mask = cmd.type_mask
-        passthrough.position = cmd.position
-        passthrough.velocity = cmd.velocity
-        passthrough.acceleration_or_force = cmd.acceleration_or_force
-        passthrough.yaw = cmd.yaw
-        passthrough.yaw_rate = cmd.yaw_rate
+        passthrough.header.frame_id = cmd.header.frame_id
+        passthrough.pose = cmd.pose
         self.setpoint_pub.publish(passthrough)
 
     def _log_passthrough(self, reason: str):
@@ -235,7 +226,7 @@ class LocalPlannerNode(Node):
 
         return False
 
-    def _log_plan(self, mode, input_cmd, output_cmd, closest_dist_m=float('inf'),
+    def _log_plan(self, mode, input_pose, output_pose, closest_dist_m=float('inf'),
                   closest_offset_m=0.0, closest_side='none', direct_clear=None,
                   best_col=None, reason=''):
         if mode == 'missing_inputs':
@@ -254,8 +245,8 @@ class LocalPlannerNode(Node):
             '[PLAN] '
             f'mode={mode} '
             f'grid_age_ms={grid_age_text} '
-            f'in={self._format_cmd(input_cmd)} '
-            f'out={self._format_cmd(output_cmd)} '
+            f'in={self._format_pose(input_pose)} '
+            f'out={self._format_pose(output_pose)} '
             f'closest={closest_side}@{closest_dist_text}m '
             f'offset={closest_offset_m:.2f} '
             f'direct_clear={direct_clear_text} '
@@ -264,11 +255,9 @@ class LocalPlannerNode(Node):
         )
 
     # ------------------------------------------------------------------ helpers
-    def _format_cmd(self, cmd: PositionTarget):
-        return (
-            f'vel=({cmd.velocity.x:.2f},{cmd.velocity.y:.2f},{cmd.velocity.z:.2f}) '
-            f'yaw={cmd.yaw:.2f}'
-        )
+    def _format_pose(self, pose: PoseStamped):
+        p = pose.pose.position
+        return f'pos=({p.x:.2f},{p.y:.2f},{p.z:.2f})'
 
     def _grid_age_ms(self):
         if self.grid_msg is None:
@@ -309,52 +298,61 @@ class LocalPlannerNode(Node):
 
     def _target_in_grid(self, W: int, res: float):
         """
-        Derive target grid column + forward component from CommNode's velocity.
-        Projects a point at lookahead_dist in the commanded direction.
+        Derive target grid column + forward component from the direction to desired_pose.
+        Projects a point at lookahead_dist in the heading direction.
         Returns (col: float, fwd_body: float).
         """
-        vx = self.desired_cmd.velocity.x
-        vy = self.desired_cmd.velocity.y
-        speed = math.hypot(vx, vy)
-
-        if speed < 1e-3:
-            return W / 2.0, 0.0   # No horizontal motion -> check straight ahead.
-
-        yaw = _yaw_from_quat(self.current_pose.pose.orientation)
-
-        # Rotate map-frame velocity into drone body frame.
-        fwd = vx * math.cos(yaw) + vy * math.sin(yaw)
-        right = vx * math.sin(yaw) - vy * math.cos(yaw)
-
-        col = W / 2.0 + (right / speed) * (self.lookahead / res)
-        return col, fwd
-
-    def _override_velocity(self, fwd: float, right: float, speed: float) -> PositionTarget:
-        """
-        Copy CommNode's PositionTarget, overriding only vx/vy.
-        yaw, vz, type_mask, and coordinate_frame are preserved exactly.
-        """
-        yaw = _yaw_from_quat(self.current_pose.pose.orientation)
-
-        # Body (fwd, right) -> map frame.
-        dx = fwd * math.cos(yaw) + right * math.sin(yaw)
-        dy = fwd * math.sin(yaw) - right * math.cos(yaw)
+        dx = self.desired_pose.pose.position.x - self.current_pose.pose.position.x
+        dy = self.desired_pose.pose.position.y - self.current_pose.pose.position.y
         dist = math.hypot(dx, dy)
 
-        if dist > 1e-3:
-            vx = dx / dist * speed
-            vy = dy / dist * speed
-        else:
-            vx = vy = 0.0
+        if dist < 1e-3:
+            return W / 2.0, 0.0   # Already at target -> check straight ahead.
 
-        out = PositionTarget()
+        yaw = _yaw_from_quat(self.current_pose.pose.orientation)
+
+        # Rotate map-frame direction into drone body frame.
+        fwd = dx * math.cos(yaw) + dy * math.sin(yaw)
+        right = dx * math.sin(yaw) - dy * math.cos(yaw)
+
+        col = W / 2.0 + (right / dist) * (self.lookahead / res)
+        return col, fwd
+
+    def _intermediate_position(self, fwd_m: float, right_m: float) -> PoseStamped:
+        """
+        Compute an intermediate PoseStamped lookahead_dist ahead, offset laterally
+        toward the chosen gap. Altitude and orientation preserved from desired_pose.
+        """
+        yaw = _yaw_from_quat(self.current_pose.pose.orientation)
+
+        # Body (fwd, right) -> map frame (same transform as original _override_velocity).
+        map_dx = fwd_m * math.cos(yaw) + right_m * math.sin(yaw)
+        map_dy = fwd_m * math.sin(yaw) - right_m * math.cos(yaw)
+
+        dist = math.hypot(map_dx, map_dy)
+        if dist > 1e-3:
+            scale = self.lookahead / dist
+            map_dx *= scale
+            map_dy *= scale
+
+        out = PoseStamped()
         out.header.stamp = self.get_clock().now().to_msg()
-        out.coordinate_frame = self.desired_cmd.coordinate_frame
-        out.type_mask = self.desired_cmd.type_mask
-        out.velocity.x = vx
-        out.velocity.y = vy
-        out.velocity.z = self.desired_cmd.velocity.z   # Preserve altitude control.
-        out.yaw = self.desired_cmd.yaw                 # Preserve rate-limited yaw.
+        out.header.frame_id = self.desired_pose.header.frame_id
+        out.pose.position.x = self.current_pose.pose.position.x + map_dx
+        out.pose.position.y = self.current_pose.pose.position.y + map_dy
+        out.pose.position.z = self.desired_pose.pose.position.z   # Preserve target altitude.
+        out.pose.orientation = self.desired_pose.pose.orientation  # Preserve target yaw.
+        return out
+
+    def _hold_position(self) -> PoseStamped:
+        """Hold current XY, maintain desired altitude."""
+        out = PoseStamped()
+        out.header.stamp = self.get_clock().now().to_msg()
+        out.header.frame_id = self.desired_pose.header.frame_id
+        out.pose.position.x = self.current_pose.pose.position.x
+        out.pose.position.y = self.current_pose.pose.position.y
+        out.pose.position.z = self.desired_pose.pose.position.z
+        out.pose.orientation = self.desired_pose.pose.orientation
         return out
 
 

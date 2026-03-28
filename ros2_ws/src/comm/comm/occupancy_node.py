@@ -1,4 +1,5 @@
 import cv2
+import math
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -11,8 +12,10 @@ from rclpy.qos import (
 from nav_msgs.msg import OccupancyGrid
 from sensor_msgs.msg import CameraInfo, Image
 from stereo_msgs.msg import DisparityImage
+from geometry_msgs.msg import PoseStamped
 import numpy as np
 from cv_bridge import CvBridge
+from scipy.ndimage import binary_erosion
 
 
 OCCUPANCY_QOS = QoSProfile(
@@ -22,6 +25,8 @@ OCCUPANCY_QOS = QoSProfile(
     durability=DurabilityPolicy.VOLATILE,
 )
 
+MIN_VALID_PX = 10
+PERCENTILE = 95
 
 class OccupancyNode(Node):
     """
@@ -74,11 +79,17 @@ class OccupancyNode(Node):
         self.last_debug_log_time = None
         self.last_occ_pub_time = None
         self.last_occ_rate_hz = None
+        self.current_pose = None
+        self.target_pose = None
 
         self.cam_info_sub = self.create_subscription(
             CameraInfo, 'disparity/camera_info', self._cam_info_cb, qos_profile_sensor_data)
         self.disparity_sub = self.create_subscription(
             DisparityImage, 'disparity', self.disparity_callback, qos_profile_sensor_data)
+        self.pose_sub = self.create_subscription(
+            PoseStamped, 'mavros/local_position/pose', self._pose_cb, qos_profile_sensor_data)
+        self.target_sub = self.create_subscription(
+            PoseStamped, 'rob498_drone_8/cmd_pose', self._target_cb, 10)
 
         # Latest-only QoS keeps the planner reacting to the newest local obstacle view.
         self.occupancy_pub = self.create_publisher(
@@ -92,6 +103,12 @@ class OccupancyNode(Node):
     def _cam_info_cb(self, msg: CameraInfo):
         # K is row-major: [fx, 0, cx, 0, fy, cy, 0, 0, 1]
         self.cx = msg.k[2]
+
+    def _pose_cb(self, msg: PoseStamped):
+        self.current_pose = msg
+
+    def _target_cb(self, msg: PoseStamped):
+        self.target_pose = msg
 
     # ------------------------------------------------------------------
     def disparity_callback(self, msg: DisparityImage):
@@ -113,11 +130,12 @@ class OccupancyNode(Node):
         # Zero out the invalid left disparity strip.
         roi[:, :self.left_crop] = np.nan
 
-        # 2. Per-column 90th-percentile disparity.
+        # 2. Per-column Xth-percentile disparity.
         # Suppress RuntimeWarning for all-NaN columns in the invalid strip.
         with np.errstate(all='ignore'):
-            col_disp = np.nanpercentile(roi, 90, axis=0)
-        valid_cols = np.where(np.isfinite(col_disp) & (col_disp > msg.min_disparity))[0]
+            col_disp = np.nanpercentile(roi, PERCENTILE, axis=0)
+        col_count = np.sum(np.isfinite(roi), axis=0)
+        valid_cols = np.where(np.isfinite(col_disp) & (col_disp > msg.min_disparity) & (col_count >= MIN_VALID_PX))[0]
 
         self.frame_count += 1
         if self.frame_count == 1:
@@ -145,6 +163,11 @@ class OccupancyNode(Node):
             )
             grid[row_idx[in_bounds], col_idx[in_bounds]] = 100
 
+        # 5. Erode to remove isolated noise cells.
+        #    A cell survives only if its 3x3 neighbourhood is fully occupied.
+        occupied = grid == 100
+        grid = np.where(binary_erosion(occupied), np.int8(100), np.int8(0))
+
         now = self.get_clock().now()
         if self.last_occ_pub_time is not None:
             period_s = (now - self.last_occ_pub_time).nanoseconds / 1e9
@@ -153,7 +176,7 @@ class OccupancyNode(Node):
         self.last_occ_pub_time = now
 
         self.occupancy_pub.publish(self._build_msg(grid, msg))
-        _, viz_msg = self._build_viz(grid, msg)
+        _, viz_msg = self._build_viz(grid, msg, self.current_pose, self.target_pose)
         self.viz_pub.publish(viz_msg)
 
         self._log_occupancy_summary(grid, valid_cols.size, W)
@@ -214,13 +237,15 @@ class OccupancyNode(Node):
         return 'left' if offset_m < 0.0 else 'right'
 
     # ------------------------------------------------------------------
-    def _build_viz(self, grid: np.ndarray, src: DisparityImage):
+    def _build_viz(self, grid: np.ndarray, src: DisparityImage,
+                   current_pose: PoseStamped, target_pose: PoseStamped):
         """
         Bird's-eye view image of the occupancy grid.
-        - Black  : free space
-        - Red    : occupied cell
-        - Green  : drone position (bottom-centre)
-        - Grey   : centre line (straight ahead)
+        - Dark grey : free space
+        - Red       : occupied cell
+        - Green     : drone position (bottom-centre)
+        - Cyan X    : next waypoint projected into drone body frame
+        - Grey      : centre line (straight ahead)
         Grid is flipped so the drone is at the bottom and far distance at top.
         Each cell is drawn as CELL_PX x CELL_PX pixels for readability.
         """
@@ -250,6 +275,24 @@ class OccupancyNode(Node):
         drone_y = H - CELL_PX - 1
         cv2.circle(img, (drone_x, drone_y), CELL_PX, (0, 220, 0), -1)
 
+        # Waypoint marker - cyan X projected into drone body frame.
+        if current_pose is not None and target_pose is not None:
+            yaw = _yaw_from_quat(current_pose.pose.orientation)
+            dx = target_pose.pose.position.x - current_pose.pose.position.x
+            dy = target_pose.pose.position.y - current_pose.pose.position.y
+            # Rotate map-frame delta into drone body frame (same convention as planner).
+            fwd = dx * math.cos(yaw) + dy * math.sin(yaw)
+            right = dx * math.sin(yaw) - dy * math.cos(yaw)
+            # Convert body-frame offsets to grid indices.
+            wp_grid_row = int(fwd / self.res)
+            wp_grid_col = int(self.grid_w / 2.0 + right / self.res)
+            if 0 <= wp_grid_row < self.grid_d and 0 <= wp_grid_col < self.grid_w:
+                # After flip: image_y = H - 1 - (grid_row * CELL_PX + CELL_PX//2)
+                wp_img_x = wp_grid_col * CELL_PX + CELL_PX // 2
+                wp_img_y = H - 1 - (wp_grid_row * CELL_PX + CELL_PX // 2)
+                cv2.drawMarker(img, (wp_img_x, wp_img_y),
+                               (220, 220, 0), cv2.MARKER_CROSS, CELL_PX * 4, 2)
+
         # Text overlay: obstacle cell count and camera info status.
         n_occ = int(np.sum(grid == 100))
         cx_status = f'cx={self.cx:.1f}' if self.cx is not None else 'cx=W/2'
@@ -275,6 +318,13 @@ class OccupancyNode(Node):
         occ.info.origin.orientation.w = 1.0
         occ.data = grid.flatten().tolist()
         return occ
+
+
+def _yaw_from_quat(q) -> float:
+    return math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y),
+        1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+    )
 
 
 def main(args=None):
