@@ -25,8 +25,8 @@ OCCUPANCY_QOS = QoSProfile(
     durability=DurabilityPolicy.VOLATILE,
 )
 
-MIN_VALID_PX = 10
-PERCENTILE = 95
+MIN_VALID_PX = 8
+PERCENTILE = 90
 
 class OccupancyNode(Node):
     """
@@ -165,8 +165,8 @@ class OccupancyNode(Node):
 
         # 5. Erode to remove isolated noise cells.
         #    A cell survives only if its 3x3 neighbourhood is fully occupied.
-        occupied = grid == 100
-        grid = np.where(binary_erosion(occupied), np.int8(100), np.int8(0))
+        #occupied = grid == 100
+        #grid = np.where(binary_erosion(occupied), np.int8(100), np.int8(0))
 
         now = self.get_clock().now()
         if self.last_occ_pub_time is not None:

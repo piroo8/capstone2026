@@ -12,8 +12,8 @@ import numpy as np
 STATES = ['LAUNCH, ARMING']
 MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
 
-LAUNCH_ALT = 2.0
-Z_OFFSET = 0.15
+LAUNCH_ALT = 0.5
+Z_OFFSET = -0.125
 RADIUS = 0.1
 
 
@@ -34,6 +34,7 @@ class CommNode(Node):
         self.state_sub = self.create_subscription(State, 'mavros/state', self._state_callback, 10)
         self.pos_sub = self.create_subscription(PoseStamped, 'mavros/local_position/pose', self._pos_callback, qos_profile_sensor_data)
         self.local_pos_pub = self.create_publisher(PoseStamped, 'mavros/setpoint_position/local', 10)
+        self.waypoint_sub = self.create_subscription(PoseArray,'rob498_drone_8/comm/waypoints',self._waypoint_callback, 10)
         # Routed to local_planner_node when it is running; planner then publishes to MAVROS.
         self.cmd_pose_pub = self.create_publisher(PoseStamped, 'rob498_drone_8/cmd_pose', 10)
 
