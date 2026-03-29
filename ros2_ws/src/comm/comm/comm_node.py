@@ -15,6 +15,7 @@ MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
 LAUNCH_ALT = 2.0
 Z_OFFSET = 0.15
 RADIUS = 0.1
+# Freeze yaw updates inside the last 20 cm so position noise does not cause twitching.
 HEADING_HOLD_RADIUS = 0.2
 
 
@@ -35,6 +36,7 @@ class CommNode(Node):
         self.state_sub = self.create_subscription(State, 'mavros/state', self._state_callback, 10)
         self.pos_sub = self.create_subscription(PoseStamped, 'mavros/local_position/pose', self._pos_callback, qos_profile_sensor_data)
         self.local_pos_pub = self.create_publisher(PoseStamped, 'mavros/setpoint_position/local', 10)
+        # Restore waypoint intake from the ground-control publisher.
         self.waypoint_sub = self.create_subscription(PoseArray, 'rob498_drone_8/comm/waypoints', self._waypoint_callback, 10)
         # Routed to local_planner_node when it is running; planner then publishes to MAVROS.
         self.cmd_pose_pub = self.create_publisher(PoseStamped, 'rob498_drone_8/cmd_pose', 10)
@@ -50,6 +52,7 @@ class CommNode(Node):
         self.current_pos = PoseStamped()
         self.target_pose = PoseStamped()
         self.current_state = State()
+        # Home is captured once on launch from the current pose.
         self.home_pose = None
 
         # Waypoints
@@ -59,6 +62,7 @@ class CommNode(Node):
         self.target_radius = RADIUS
         self.test_active = False
         self.return_home_active = False
+        # Last yaw commanded while still outside the heading-hold radius.
         self.active_wp_yaw = None
 
         self.get_logger().info('Waiting for MAVROS services...')
@@ -194,6 +198,7 @@ class CommNode(Node):
             self.target_pose.pose.orientation.z = math.sin(yaw / 2.0)
             self.target_pose.pose.orientation.w = math.cos(yaw / 2.0)
         elif self.active_wp_yaw is not None:
+            # Hold the last stable yaw near the waypoint instead of chasing noisy dx/dy.
             self.target_pose.pose.orientation.x = 0.0
             self.target_pose.pose.orientation.y = 0.0
             self.target_pose.pose.orientation.z = math.sin(self.active_wp_yaw / 2.0)
