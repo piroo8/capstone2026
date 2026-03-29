@@ -14,8 +14,9 @@ MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
 
 LAUNCH_ALT = 0.5
 Z_OFFSET = -0.125
-RADIUS = 0.1
+RADIUS = 0.2
 
+YAW_RADIUS = 0.5
 
 class CommNode(Node):
     def __init__(self):
@@ -58,6 +59,7 @@ class CommNode(Node):
         self.target_radius = RADIUS
         self.test_active = False
         self.return_home_active = False
+        self.prev_waypoint = None
 
         self.get_logger().info('Waiting for MAVROS services...')
         self.arming_client.wait_for_service()
@@ -97,6 +99,7 @@ class CommNode(Node):
             response.message = "No waypoints received"
             return response
 
+        self.prev_waypoint = np.array([self.current_pos.pose.position.x, self.current_pos.pose.position.y, self.current_pos.pose.position.z])
         self.current_wp_index = 0
         self.test_active = True
 
@@ -180,28 +183,33 @@ class CommNode(Node):
         self.target_pose.pose.position.x = wp[0]
         self.target_pose.pose.position.y = wp[1]
         self.target_pose.pose.position.z = wp[2]
-        if math.hypot(dx, dy) > 0.1:
-            yaw = math.atan2(dy, dx)
+
+        xy_dist = np.sqrt(dx**2 + dy**2)
+        dist = np.sqrt(dx**2 + dy**2 + dz**2)
+        
+
+        #wp = np.array([pose.position.x, pose.position.y, pose.position.z])
+        yaw = math.atan2(wp[1] - self.prev_waypoint[1], wp[0] - self.prev_waypoint[0])
+        
+        if xy_dist > YAW_RADIUS:
             self.target_pose.pose.orientation.x = 0.0
             self.target_pose.pose.orientation.y = 0.0
             self.target_pose.pose.orientation.z = math.sin(yaw / 2.0)
             self.target_pose.pose.orientation.w = math.cos(yaw / 2.0)
-        else:
-            self.target_pose.pose.orientation = self.current_pos.pose.orientation
-
-        dist = np.sqrt(dx**2 + dy**2 + dz**2)
 
         now = self.get_clock().now()
 
         if (now - self.last_nav_log_time).nanoseconds > 1e9:
             self.get_logger().info(f"[NAV]: WP {self.current_wp_index+1} | "f"Dist {dist:.3f} m")
             self.last_nav_log_time = now
+            self.get_logger().info(f"[ORIENTATION]: Yaw to target: {math.degrees(yaw):.1f} degrees")
 
         if dist < self.target_radius:
 
             self.get_logger().info(f"[WAYPOINT]: {self.current_wp_index+1} reached "f"(distance {dist:.3f} m)")
 
             self.current_wp_index += 1
+            self.prev_waypoint = wp
 
             if self.current_wp_index < len(self.waypoints):
 
