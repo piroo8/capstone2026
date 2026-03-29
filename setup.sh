@@ -2,7 +2,7 @@
 set -e
 
 SESSION="drone"
-GCS_IP="10.42.0.123"
+GCS_IP="10.42.0."
 
 # kill old session if it exists
 if tmux has-session -t "$SESSION" 2>/dev/null; then

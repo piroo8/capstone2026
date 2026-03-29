@@ -12,8 +12,8 @@ import numpy as np
 STATES = ['LAUNCH, ARMING']
 MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
 
-LAUNCH_ALT = 2.0
-Z_OFFSET = 0.15
+LAUNCH_ALT = 0.5
+Z_OFFSET = -0.125
 RADIUS = 0.1
 # Freeze yaw updates inside the last 20 cm so position noise does not cause twitching.
 HEADING_HOLD_RADIUS = 0.2
