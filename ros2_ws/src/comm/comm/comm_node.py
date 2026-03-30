@@ -60,6 +60,7 @@ class CommNode(Node):
         self.test_active = False
         self.return_home_active = False
         self.prev_waypoint = None
+        self.ignore_first_waypoint_yaw = False
 
         self.get_logger().info('Waiting for MAVROS services...')
         self.arming_client.wait_for_service()
@@ -99,9 +100,33 @@ class CommNode(Node):
             response.message = "No waypoints received"
             return response
 
+        first_wp = self.waypoints[0]
+        ref_x = self.current_pos.pose.position.x
+        ref_y = self.current_pos.pose.position.y
+        ref_z = self.current_pos.pose.position.z
+
+        launch_target_active = (
+            self.target_pose.pose.position.z > 0.0
+            and abs(self.target_pose.pose.position.x - self.current_pos.pose.position.x) <= YAW_RADIUS
+            and abs(self.target_pose.pose.position.y - self.current_pos.pose.position.y) <= YAW_RADIUS
+        )
+
+        if launch_target_active:
+            ref_x = self.target_pose.pose.position.x
+            ref_y = self.target_pose.pose.position.y
+            ref_z = self.target_pose.pose.position.z
+
+        first_xy_dist = math.hypot(first_wp[0] - ref_x, first_wp[1] - ref_y)
+        first_z_delta = abs(first_wp[2] - ref_z)
+        self.ignore_first_waypoint_yaw = first_xy_dist <= YAW_RADIUS and first_z_delta > 0.05
+
         self.prev_waypoint = np.array([self.current_pos.pose.position.x, self.current_pos.pose.position.y, self.current_pos.pose.position.z])
         self.current_wp_index = 0
         self.test_active = True
+
+        if self.ignore_first_waypoint_yaw:
+            self.target_pose.pose.orientation = self.current_pos.pose.orientation
+            self.get_logger().info("[TEST]: First waypoint is vertical-only; holding yaw")
 
         self.get_logger().info("[TEST]: Starting waypoint navigation")
 
@@ -191,7 +216,9 @@ class CommNode(Node):
         #wp = np.array([pose.position.x, pose.position.y, pose.position.z])
         yaw = math.atan2(wp[1] - self.prev_waypoint[1], wp[0] - self.prev_waypoint[0])
         
-        if xy_dist > YAW_RADIUS:
+        if self.current_wp_index == 0 and self.ignore_first_waypoint_yaw:
+            pass
+        elif xy_dist > YAW_RADIUS:
             self.target_pose.pose.orientation.x = 0.0
             self.target_pose.pose.orientation.y = 0.0
             self.target_pose.pose.orientation.z = math.sin(yaw / 2.0)
@@ -207,6 +234,9 @@ class CommNode(Node):
         if dist < self.target_radius:
 
             self.get_logger().info(f"[WAYPOINT]: {self.current_wp_index+1} reached "f"(distance {dist:.3f} m)")
+
+            if self.current_wp_index == 0:
+                self.ignore_first_waypoint_yaw = False
 
             self.current_wp_index += 1
             self.prev_waypoint = wp
