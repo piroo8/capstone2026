@@ -22,7 +22,8 @@ setup(
         'console_scripts': [
             'comm_node = comm.comm_node:main',
             'occupancy_node = comm.occupancy_node:main',
-            'local_planner_node = comm.local_planner_node:main'
+            'local_planner_node = comm.local_planner_node:main',
+            'plate_reader_node = comm.plate_reader_node:main'
         ],
     },
 )
