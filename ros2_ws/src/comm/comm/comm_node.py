@@ -1,6 +1,5 @@
 import math
 import json
-from datetime import datetime
 from pathlib import Path
 import rclpy
 from rclpy.node import Node
@@ -93,8 +92,9 @@ class CommNode(Node):
         self.scan_hold_orientation = None
         self.planner_enabled = False
 
-        # Live mission logging (JSONL)
+        # Live mission logging (JSON)
         self.mission_log_path = None
+        self.mission_log_entries = []
         self.logged_plate_events = set()
 
         self.get_logger().info('Waiting for MAVROS services...')
@@ -204,8 +204,8 @@ class CommNode(Node):
 
     def _start_mission_log(self):
         log_dir = Path(__file__).resolve().parent
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        self.mission_log_path = log_dir / f'confirmed_plates_{timestamp}.jsonl'
+        self.mission_log_path = log_dir / 'confirmed_plates.json'
+        self.mission_log_entries = []
         self._append_mission_log({
             'event': 'mission_start',
             'timestamp_s': round(self.get_clock().now().nanoseconds / 1e9, 3),
@@ -216,8 +216,12 @@ class CommNode(Node):
     def _append_mission_log(self, entry):
         if self.mission_log_path is None:
             return
-        with self.mission_log_path.open('a', encoding='utf-8') as handle:
-            handle.write(json.dumps(entry) + '\n')
+        self.mission_log_entries.append(entry)
+        payload = {
+            'entries': self.mission_log_entries,
+        }
+        with self.mission_log_path.open('w', encoding='utf-8') as handle:
+            json.dump(payload, handle, indent=2)
 
 
     def callback_abort(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
