@@ -11,6 +11,7 @@ from rclpy.qos import (
 from rclpy.time import Time
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid
+from std_msgs.msg import Bool
 import numpy as np
 
 
@@ -84,9 +85,12 @@ class LocalPlannerNode(Node):
         self.last_passthrough_reason = None
         self.last_debug_log_time = None
         self.last_plan_mode = None
+        self.enabled = False
 
         self.occ_sub = self.create_subscription(
             OccupancyGrid, 'occupancy_node/occupancy_grid', self._occ_cb, OCCUPANCY_QOS)
+        self.enable_sub = self.create_subscription(
+            Bool, '/local_planner/enabled', self._enable_cb, 10)
         self.pose_sub = self.create_subscription(
             PoseStamped, 'mavros/local_position/pose', self._pose_cb, qos_profile_sensor_data)
         # Subscribing here triggers CommNode's routing logic:
@@ -104,17 +108,25 @@ class LocalPlannerNode(Node):
     def _occ_cb(self, msg: OccupancyGrid):
         self.grid_msg = msg
 
+    def _enable_cb(self, msg: Bool):
+        self.enabled = msg.data
+
     def _pose_cb(self, msg: PoseStamped):
         self.current_pose = msg
 
     def _cmd_cb(self, msg: PoseStamped):
         self.desired_pose = msg
+        if not self.enabled:
+            return
         # If planner inputs are not ready yet, keep MAVROS fed with the raw target.
         if self.grid_msg is None or self.current_pose is None:
             self._publish_passthrough(msg)
 
     # ------------------------------------------------------------------ main loop
     def _plan(self):
+        if not self.enabled:
+            return
+
         if self.desired_pose is None:
             return
 

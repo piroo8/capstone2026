@@ -6,6 +6,8 @@ from rclpy.node import Node
 from std_srvs.srv import Trigger
 from mavros_msgs.msg import State
 from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import OccupancyGrid
+from stereo_msgs.msg import DisparityImage
 from mavros_msgs.srv import CommandBool, SetMode, CommandLong
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import PoseArray
@@ -24,6 +26,8 @@ TRANSIT_ALT = 0.5
 SCAN_ALT = 0.8
 ASCEND_DESCEND_TOL = 0.15
 SCAN_TIMEOUT_SEC = 15.0
+FRESHNESS_TIMEOUT_SEC = 1.0
+WAIT_LOG_PERIOD_SEC = 1.0
 
 # FSM States
 STATE_IDLE = 'IDLE'
@@ -56,7 +60,18 @@ class CommNode(Node):
 
         # Plate reader gating
         self.plate_confirmed_sub = self.create_subscription(String, '/plate_reader/confirmed', self._plate_confirmed_callback, 10,)
+        self.plate_ready_sub = self.create_subscription(Bool, '/plate_reader/ready', self._plate_ready_callback, 10)
         self.plate_enable_pub = self.create_publisher(Bool, '/plate_reader/enabled', 10)
+
+        # Compute gating for planner stack
+        self.planner_enable_pub = self.create_publisher(Bool, '/local_planner/enabled', 10)
+        self.occupancy_enable_pub = self.create_publisher(Bool, '/occupancy_node/enabled', 10)
+        self.depth_enable_pub = self.create_publisher(Bool, '/perception/depth_enabled', 10)
+
+        # Freshness monitors used as safety interlock before resuming transit
+        self.depth_fresh_sub = self.create_subscription(DisparityImage, 'disparity', self._depth_fresh_callback, qos_profile_sensor_data)
+        self.occupancy_fresh_sub = self.create_subscription(OccupancyGrid, 'occupancy_node/occupancy_grid', self._occupancy_fresh_callback, qos_profile_sensor_data)
+        self.planner_fresh_sub = self.create_subscription(PoseStamped, 'mavros/setpoint_position/local', self._planner_fresh_callback, 10)
 
         # Timer
         self.timer = self.create_timer(0.05, self._timer_callback)
@@ -64,6 +79,8 @@ class CommNode(Node):
         self.last_state_log_time = self.get_clock().now()
         self.last_pos_log_time = self.get_clock().now()
         self.last_nav_log_time = self.get_clock().now()
+        self.last_scan_wait_log_time = self.get_clock().now()
+        self.last_stack_wait_log_time = self.get_clock().now()
 
         # Poses
         self.current_pos = PoseStamped()
@@ -92,6 +109,13 @@ class CommNode(Node):
         self.scan_wp_index = None
         self.scan_hold_orientation = None
         self.planner_enabled = False
+        self.plate_reader_ready = False
+        self.plate_reader_enabled = False
+        self.nav_stack_enabled = False
+        self.waiting_for_stack_ready = False
+        self.last_depth_msg_time = None
+        self.last_occupancy_msg_time = None
+        self.last_planner_msg_time = None
 
         # Live mission logging (JSON)
         self.mission_log_path = None
@@ -103,6 +127,10 @@ class CommNode(Node):
         self.set_mode_client.wait_for_service()
         self.command_client.wait_for_service()
         self.get_logger().info('Initialization complete!')
+
+        # Keep heavy stack idle until mission test starts.
+        self._set_plate_reader_enabled(False)
+        self._set_nav_stack_enabled(False)
 
 
     def callback_launch(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
@@ -143,6 +171,9 @@ class CommNode(Node):
         self.state = STATE_TRANSIT
         self.confirmed_plate = None
         self.planner_enabled = True
+        self.waiting_for_stack_ready = False
+        self._set_plate_reader_enabled(False)
+        self._set_nav_stack_enabled(True)
         self.logged_plate_events.clear()
         self._start_mission_log()
 
@@ -199,6 +230,8 @@ class CommNode(Node):
 
             self.return_home_active = False
             self.state = STATE_IDLE
+            self._set_plate_reader_enabled(False)
+            self._set_nav_stack_enabled(False)
             self._append_mission_log({
                 'event': 'home_reached',
                 'timestamp_s': round(self.get_clock().now().nanoseconds / 1e9, 3),
@@ -232,9 +265,58 @@ class CommNode(Node):
         with self.mission_log_path.open('w', encoding='utf-8') as handle:
             json.dump(payload, handle, indent=2)
 
+    def _set_plate_reader_enabled(self, enabled: bool):
+        if self.plate_reader_enabled == enabled:
+            return
+        self.plate_reader_enabled = enabled
+        msg = Bool()
+        msg.data = enabled
+        self.plate_enable_pub.publish(msg)
+
+    def _set_nav_stack_enabled(self, enabled: bool, reset_freshness: bool = False):
+        if self.nav_stack_enabled != enabled:
+            msg = Bool()
+            msg.data = enabled
+            self.planner_enable_pub.publish(msg)
+            self.occupancy_enable_pub.publish(msg)
+            self.depth_enable_pub.publish(msg)
+            self.nav_stack_enabled = enabled
+
+        if enabled and reset_freshness:
+            self.last_depth_msg_time = None
+            self.last_occupancy_msg_time = None
+            self.last_planner_msg_time = None
+
+    def _plate_ready_callback(self, msg: Bool):
+        self.plate_reader_ready = msg.data
+
+    def _depth_fresh_callback(self, msg: DisparityImage):
+        self.last_depth_msg_time = self.get_clock().now()
+
+    def _occupancy_fresh_callback(self, msg: OccupancyGrid):
+        self.last_occupancy_msg_time = self.get_clock().now()
+
+    def _planner_fresh_callback(self, msg: PoseStamped):
+        if self.planner_enabled:
+            self.last_planner_msg_time = self.get_clock().now()
+
+    def _is_fresh(self, timestamp, now):
+        if timestamp is None:
+            return False
+        return (now - timestamp).nanoseconds / 1e9 <= FRESHNESS_TIMEOUT_SEC
+
+    def _planner_stack_ready(self, now):
+        return (
+            self._is_fresh(self.last_depth_msg_time, now)
+            and self._is_fresh(self.last_occupancy_msg_time, now)
+            and self._is_fresh(self.last_planner_msg_time, now)
+        )
+
 
     def callback_abort(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """Land using PX4 land mode"""
+        self._set_plate_reader_enabled(False)
+        self._set_nav_stack_enabled(False)
         req = SetMode.Request()
         req.custom_mode = 'AUTO.LAND'
         self.get_logger().info("Requesting AUTO.LAND...")
@@ -246,6 +328,7 @@ class CommNode(Node):
     def update_waypoint_navigation(self, wp_index, target_altitude, hold_orientation=None):
         """Navigate to a waypoint at a requested altitude and return nav metrics."""
         wp = self.waypoints[wp_index]
+        yaw = 0.0
 
         # Set target position
         self.target_pose.pose.position.x = wp[0]
@@ -440,12 +523,16 @@ class CommNode(Node):
 
     def _update_transit(self):
         """Navigate waypoints at TRANSIT_ALT with planner enabled"""
+        self._set_plate_reader_enabled(False)
+        self._set_nav_stack_enabled(True)
+
         # Waypoint have already been checked that they exist in Test service callback.
         if self.current_wp_index >= len(self.waypoints):
             # All waypoints done, return home
             self.test_active = False
             self.return_home_active = True
             self.planner_enabled = True
+            self._set_plate_reader_enabled(False)
             self._append_mission_log({
                 'event': 'all_waypoints_complete',
                 'timestamp_s': round(self.get_clock().now().nanoseconds / 1e9, 3),
@@ -468,28 +555,42 @@ class CommNode(Node):
             self.planner_enabled = False
             self.scan_wp_index = self.current_wp_index
             self.scan_hold_orientation = self.target_pose.pose.orientation
+            self.scan_start_time = None
+            self.plate_reader_ready = False
+            self._set_nav_stack_enabled(False)
+            self._set_plate_reader_enabled(True)
             self.state = STATE_DESCEND
 
     def _update_descend(self):
         """Descend to SCAN_ALT before enabling camera"""
+        self._set_nav_stack_enabled(False)
+        self._set_plate_reader_enabled(True)
+
         # Navigate to scan altitude, holding orientation from transit phase
         dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.scan_wp_index, SCAN_ALT, self.scan_hold_orientation)
         
         if abs(dz) < ASCEND_DESCEND_TOL:  # Reached scan altitude
-            self.state = STATE_SCAN
-            self.scan_start_time = self.get_clock().now()
-            self.confirmed_plate = None
-            self.get_logger().info(f"[SCAN]: At scan altitude {SCAN_ALT} m, camera enabled")
+            if self.plate_reader_ready:
+                self.state = STATE_SCAN
+                self.scan_start_time = self.get_clock().now()
+                self.confirmed_plate = None
+                self.get_logger().info(f"[SCAN]: At scan altitude {SCAN_ALT} m, camera enabled")
+            else:
+                now = self.get_clock().now()
+                if (now - self.last_scan_wait_log_time).nanoseconds / 1e9 > WAIT_LOG_PERIOD_SEC:
+                    self.get_logger().warn('[SCAN]: Waiting for plate_reader ready before starting timeout')
+                    self.last_scan_wait_log_time = now
 
     def _update_scan(self):
         """Hold scanning phase at current waypoint"""
+        self._set_nav_stack_enabled(False)
+        self._set_plate_reader_enabled(True)
+
         # Navigate to hold position at scan altitude
         dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.scan_wp_index, SCAN_ALT, self.scan_hold_orientation)
-        
-        # Publish plate reader enabled signal (only during SCAN)
-        plate_msg = Bool()
-        plate_msg.data = True
-        self.plate_enable_pub.publish(plate_msg)
+
+        if self.scan_start_time is None:
+            self.scan_start_time = self.get_clock().now()
         
         now = self.get_clock().now()
         scan_elapsed = (now - self.scan_start_time).nanoseconds / 1e9
@@ -500,18 +601,31 @@ class CommNode(Node):
             if timed_out:
                 self.get_logger().warn(f"[SCAN]: Timeout at waypoint {self.current_wp_index+1}, ascending")
 
-            plate_msg = Bool()
-            plate_msg.data = False
-            self.plate_enable_pub.publish(plate_msg)
+            self._set_plate_reader_enabled(False)
             self.state = STATE_ASCEND
             return
 
     def _update_ascend(self):
         """Ascend back to TRANSIT_ALT and enable planner"""
+        self._set_plate_reader_enabled(False)
+
         # Navigate to transit altitude, holding orientation from transit phase
         dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.scan_wp_index, TRANSIT_ALT, self.scan_hold_orientation)
         
         if abs(dz) < ASCEND_DESCEND_TOL:  # Reached transit altitude
+            if not self.waiting_for_stack_ready:
+                self._set_nav_stack_enabled(True, reset_freshness=True)
+                self.waiting_for_stack_ready = True
+                self.planner_enabled = True
+
+            now = self.get_clock().now()
+            if not self._planner_stack_ready(now):
+                if (now - self.last_stack_wait_log_time).nanoseconds / 1e9 > WAIT_LOG_PERIOD_SEC:
+                    self.get_logger().warn('[ASCEND]: Holding for fresh depth/occupancy/planner publishes before transit')
+                    self.last_stack_wait_log_time = now
+                return
+
+            self.waiting_for_stack_ready = False
             self.current_wp_index += 1
             wp = self.waypoints[self.scan_wp_index]
             self.prev_waypoint = np.array([wp[0], wp[1], TRANSIT_ALT])

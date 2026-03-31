@@ -7,6 +7,9 @@ from cv_bridge import CvBridge
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, String
+import tensorrt as trt
+import pycuda.autoinit  # noqa: F401
+import pycuda.driver as cuda
 
 # Engine paths
 LPD_ENGINE_PATH = '/home/jetson/engines/lpdnet_fp32.engine'
@@ -34,22 +37,12 @@ MIN_READ_CONF = 0.45
 DRONE_NS = 'rob498_drone_8'
 RGB_IMAGE_TOPIC = '/camera/image_raw'
 PLATE_ENABLED_TOPIC = '/plate_reader/enabled'
+PLATE_READY_TOPIC = '/plate_reader/ready'
 PLATE_CONFIRMED_TOPIC = '/plate_reader/confirmed'
 PLATE_CURRENT_TOPIC = '/plate_reader/current'
 # PLATE_DEBUG_IMAGE_TOPIC = '/plate_reader/debug_image'  # disabled by default to save compute
 
-try:
-    import tensorrt as trt
-    import pycuda.autoinit  # noqa: F401
-    import pycuda.driver as cuda
-except Exception as exc:
-    trt = None
-    cuda = None
-    TRT_IMPORT_ERROR = exc
-else:
-    TRT_IMPORT_ERROR = None
-
-TRT_LOGGER = trt.Logger(trt.Logger.WARNING) if trt is not None else None
+TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
 
 class TRTModel:
@@ -57,12 +50,7 @@ class TRTModel:
         with open(engine_path, 'rb') as handle:
             runtime = trt.Runtime(TRT_LOGGER)
             self.engine = runtime.deserialize_cuda_engine(handle.read())
-        if self.engine is None:
-            raise RuntimeError(f'Could not deserialize TensorRT engine: {engine_path}')
-
         self.context = self.engine.create_execution_context()
-        if self.context is None:
-            raise RuntimeError(f'Could not create TensorRT context: {engine_path}')
 
         self.inputs = []
         self.outputs = []
@@ -126,7 +114,9 @@ class PlateReaderNode(Node):
         self.last_detections = []
         self.last_confirmed_plate = ''
         self.voter = PlateVoter()
+        self.ready_latched = False
 
+        self.ready_pub = self.create_publisher(Bool, PLATE_READY_TOPIC, 10)
         self.confirmed_pub = self.create_publisher(String, PLATE_CONFIRMED_TOPIC, 10)
         self.current_pub = self.create_publisher(String, PLATE_CURRENT_TOPIC, 10)
 
@@ -134,19 +124,13 @@ class PlateReaderNode(Node):
         self.create_subscription(Bool, PLATE_ENABLED_TOPIC, self._enable_cb, 10)
 
         self.models_ready = False
-        if trt is None or cuda is None:
-            self.get_logger().error(f'TensorRT/PyCUDA import failed: {TRT_IMPORT_ERROR}')
-            return
-
-        try:
-            self.get_logger().info(f'Loading LPD engine from {LPD_ENGINE_PATH}')
-            self.lpd_model = TRTModel(LPD_ENGINE_PATH)
-            self.get_logger().info(f'Loading LPR engine from {LPR_ENGINE_PATH}')
-            self.lpr_model = TRTModel(LPR_ENGINE_PATH)
-            self.models_ready = True
-            self.get_logger().info(f'[READY] Plate reader online. Listening on {RGB_IMAGE_TOPIC}, gated by {PLATE_ENABLED_TOPIC}')
-        except Exception as exc:
-            self.get_logger().error(f'Failed to initialize plate reader: {exc}')
+        self.get_logger().info(f'Loading LPD engine from {LPD_ENGINE_PATH}')
+        self.lpd_model = TRTModel(LPD_ENGINE_PATH)
+        self.get_logger().info(f'Loading LPR engine from {LPR_ENGINE_PATH}')
+        self.lpr_model = TRTModel(LPR_ENGINE_PATH)
+        self.models_ready = True
+        self._publish_ready(False)
+        self.get_logger().info(f'[READY] Plate reader online. Listening on {RGB_IMAGE_TOPIC}, gated by {PLATE_ENABLED_TOPIC}')
 
     def _enable_cb(self, msg: Bool):
         if msg.data == self.enabled:
@@ -156,9 +140,16 @@ class PlateReaderNode(Node):
         self.frame_id = 0
         self.last_detections = []
         self.last_confirmed_plate = ''
+        self.ready_latched = False
         self.voter.clear()
+        self._publish_ready(False)
         state = 'enabled' if self.enabled else 'disabled'
         self.get_logger().info(f'Plate reader {state}')
+
+    def _publish_ready(self, ready: bool):
+        ready_msg = Bool()
+        ready_msg.data = ready
+        self.ready_pub.publish(ready_msg)
 
     def _image_cb(self, msg: Image):
         if not self.enabled or not self.models_ready:
@@ -172,6 +163,7 @@ class PlateReaderNode(Node):
             lpd_out = self.lpd_model.infer(lpd_tensor)
             self.last_detections = decode_lpd(lpd_out[0], lpd_out[1], scale_x, scale_y)
 
+        # DEBUG-ONLY: keep overlay drawing for visual diagnostics during testing.
         overlay = frame.copy()
         current_plate = ''
 
@@ -222,6 +214,10 @@ class PlateReaderNode(Node):
         current_msg = String()
         current_msg.data = current_plate
         self.current_pub.publish(current_msg)
+
+        if not self.ready_latched:
+            self._publish_ready(True)
+            self.ready_latched = True
 
 
 def ctc_decode(pred):

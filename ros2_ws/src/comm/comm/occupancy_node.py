@@ -13,6 +13,7 @@ from nav_msgs.msg import OccupancyGrid
 from sensor_msgs.msg import CameraInfo, Image
 from stereo_msgs.msg import DisparityImage
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Bool
 import numpy as np
 from cv_bridge import CvBridge
 from scipy.ndimage import binary_erosion
@@ -81,11 +82,14 @@ class OccupancyNode(Node):
         self.last_occ_rate_hz = None
         self.current_pose = None
         self.target_pose = None
+        self.enabled = False
 
         self.cam_info_sub = self.create_subscription(
             CameraInfo, 'disparity/camera_info', self._cam_info_cb, qos_profile_sensor_data)
         self.disparity_sub = self.create_subscription(
             DisparityImage, 'disparity', self.disparity_callback, qos_profile_sensor_data)
+        self.enable_sub = self.create_subscription(
+            Bool, '/occupancy_node/enabled', self._enable_cb, 10)
         self.pose_sub = self.create_subscription(
             PoseStamped, 'mavros/local_position/pose', self._pose_cb, qos_profile_sensor_data)
         self.target_sub = self.create_subscription(
@@ -110,8 +114,14 @@ class OccupancyNode(Node):
     def _target_cb(self, msg: PoseStamped):
         self.target_pose = msg
 
+    def _enable_cb(self, msg: Bool):
+        self.enabled = msg.data
+
     # ------------------------------------------------------------------
     def disparity_callback(self, msg: DisparityImage):
+        if not self.enabled:
+            return
+
         f = float(msg.f)
         B = abs(float(msg.t))
         if f == 0.0 or B == 0.0:
