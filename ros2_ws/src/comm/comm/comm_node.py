@@ -1,22 +1,38 @@
 import math
+import json
+from datetime import datetime
+from pathlib import Path
 import rclpy
 from rclpy.node import Node
-from std_srvs.srv import Empty, Trigger
+from std_srvs.srv import Trigger
 from mavros_msgs.msg import State
 from geometry_msgs.msg import PoseStamped
 from mavros_msgs.srv import CommandBool, SetMode, CommandLong
 from rclpy.qos import qos_profile_sensor_data
-from geometry_msgs.msg import PoseArray, Pose
+from geometry_msgs.msg import PoseArray
+from std_msgs.msg import Bool, String
 import numpy as np
 
-STATES = ['LAUNCH, ARMING']
 MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
 
-LAUNCH_ALT = 0.5
 Z_OFFSET = -0.125
 RADIUS = 0.2
 
 YAW_RADIUS = 0.5
+
+# Scanning parameters
+TRANSIT_ALT = 0.5
+SCAN_ALT = 0.8
+ASCEND_DESCEND_TOL = 0.15
+SCAN_TIMEOUT_SEC = 15.0
+
+# FSM States
+STATE_IDLE = 'IDLE'
+STATE_TRANSIT = 'TRANSIT'
+STATE_DESCEND = 'DESCEND'
+STATE_SCAN = 'SCAN'
+STATE_ASCEND = 'ASCEND'
+
 
 class CommNode(Node):
     def __init__(self):
@@ -38,6 +54,10 @@ class CommNode(Node):
         self.waypoint_sub = self.create_subscription(PoseArray,'rob498_drone_8/comm/waypoints',self._waypoint_callback, 10)
         # Routed to local_planner_node when it is running; planner then publishes to MAVROS.
         self.cmd_pose_pub = self.create_publisher(PoseStamped, 'rob498_drone_8/cmd_pose', 10)
+
+        # Plate reader gating
+        self.plate_confirmed_sub = self.create_subscription(String, '/plate_reader/confirmed', self._plate_confirmed_callback, 10,)
+        self.plate_enable_pub = self.create_publisher(Bool, '/plate_reader/enabled', 10)
 
         # Timer
         self.timer = self.create_timer(0.05, self._timer_callback)
@@ -61,6 +81,22 @@ class CommNode(Node):
         self.return_home_active = False
         self.prev_waypoint = None
 
+        # FSM State
+        self.state = STATE_IDLE
+
+        # License plate scanning
+        self.confirmed_plate = None
+        
+        # Scan state tracking
+        self.scan_start_time = None
+        self.scan_wp_index = None
+        self.scan_hold_orientation = None
+        self.planner_enabled = False
+
+        # Live mission logging (JSONL)
+        self.mission_log_path = None
+        self.logged_plate_events = set()
+
         self.get_logger().info('Waiting for MAVROS services...')
         self.arming_client.wait_for_service()
         self.set_mode_client.wait_for_service()
@@ -69,14 +105,14 @@ class CommNode(Node):
 
 
     def callback_launch(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
-        """Takeoff in place to LAUNCH_ALT"""
+        """Takeoff in place to TRANSIT_ALT"""
         if self.home_pose is None:
             self.home_pose.pose = self.current_pos.pose
             self.get_logger().info(f"[HOME SET] X: {self.current_pos.pose.position.x:.3f} | Y: {self.current_pos.pose.position.y:.3f} | Z: {self.current_pos.pose.position.z:.3f}")
 
         self.target_pose.pose.position.x = self.current_pos.pose.position.x
         self.target_pose.pose.position.y = self.current_pos.pose.position.y
-        self.target_pose.pose.position.z = self.current_pos.pose.position.z + LAUNCH_ALT
+        self.target_pose.pose.position.z = self.current_pos.pose.position.z + TRANSIT_ALT
         self.target_pose.pose.orientation = self.current_pos.pose.orientation
 
         self.get_logger().info(f"[LAUNCH]: Takeoff to target | X: {self.target_pose.pose.position.x:.3f} | Y: {self.target_pose.pose.position.y:.3f} | Z: {self.target_pose.pose.position.z:.3f}")
@@ -102,6 +138,11 @@ class CommNode(Node):
         self.prev_waypoint = np.array([self.current_pos.pose.position.x, self.current_pos.pose.position.y, self.current_pos.pose.position.z])
         self.current_wp_index = 0
         self.test_active = True
+        self.state = STATE_TRANSIT
+        self.confirmed_plate = None
+        self.planner_enabled = True
+        self.logged_plate_events.clear()
+        self._start_mission_log()
 
         self.get_logger().info("[TEST]: Starting waypoint navigation")
 
@@ -148,8 +189,35 @@ class CommNode(Node):
             response.message = "Sent AUTO.LAND command to MAVROS."
 
             self.return_home_active = False
+            self.state = STATE_IDLE
+            self._append_mission_log({
+                'event': 'home_reached',
+                'timestamp_s': round(self.get_clock().now().nanoseconds / 1e9, 3),
+                'state': self.state,
+            })
 
             return response
+
+        response.success = True
+        response.message = 'Returning to home position.'
+        return response
+
+    def _start_mission_log(self):
+        log_dir = Path(__file__).resolve().parent
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.mission_log_path = log_dir / f'confirmed_plates_{timestamp}.jsonl'
+        self._append_mission_log({
+            'event': 'mission_start',
+            'timestamp_s': round(self.get_clock().now().nanoseconds / 1e9, 3),
+            'state': self.state,
+        })
+        self.get_logger().info(f'[LOG]: Writing mission plate log to {self.mission_log_path}')
+
+    def _append_mission_log(self, entry):
+        if self.mission_log_path is None:
+            return
+        with self.mission_log_path.open('a', encoding='utf-8') as handle:
+            handle.write(json.dumps(entry) + '\n')
 
 
     def callback_abort(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
@@ -162,60 +230,37 @@ class CommNode(Node):
         response.message = "Sent AUTO.LAND command to MAVROS."
         return response
 
-    def update_waypoint_navigation(self):
-        if not self.test_active:
-            return
+    def update_waypoint_navigation(self, wp_index, target_altitude, hold_orientation=None):
+        """Navigate to a waypoint at a requested altitude and return nav metrics."""
+        wp = self.waypoints[wp_index]
 
-        if self.current_wp_index >= len(self.waypoints):
-            self.test_active = False
-            self.return_home_active = True
-            self.get_logger().info("[MISSION]: All waypoints reached. Returning home.")
-            return
-
-        wp = self.waypoints[self.current_wp_index]
-
-        # Distance to waypoint
-        dx = wp[0] - self.current_pos.pose.position.x
-        dy = wp[1] - self.current_pos.pose.position.y
-        dz = wp[2] - self.current_pos.pose.position.z
-
-        # Set target position and yaw to face direction of travel.
+        # Set target position
         self.target_pose.pose.position.x = wp[0]
         self.target_pose.pose.position.y = wp[1]
-        self.target_pose.pose.position.z = wp[2]
+        self.target_pose.pose.position.z = target_altitude
+
+        # Calculate distances
+        dx = wp[0] - self.current_pos.pose.position.x
+        dy = wp[1] - self.current_pos.pose.position.y
+        dz = target_altitude - self.current_pos.pose.position.z
 
         xy_dist = np.sqrt(dx**2 + dy**2)
         dist = np.sqrt(dx**2 + dy**2 + dz**2)
-        
 
-        #wp = np.array([pose.position.x, pose.position.y, pose.position.z])
-        yaw = math.atan2(wp[1] - self.prev_waypoint[1], wp[0] - self.prev_waypoint[0])
-        
-        if xy_dist > YAW_RADIUS:
-            self.target_pose.pose.orientation.x = 0.0
-            self.target_pose.pose.orientation.y = 0.0
-            self.target_pose.pose.orientation.z = math.sin(yaw / 2.0)
-            self.target_pose.pose.orientation.w = math.cos(yaw / 2.0)
+        # Set orientation
+        if hold_orientation is not None:
+            self.target_pose.pose.orientation = hold_orientation
+        else:
+            # Calculate yaw toward waypoint
+            yaw = math.atan2(wp[1] - self.prev_waypoint[1], wp[0] - self.prev_waypoint[0])
 
-        now = self.get_clock().now()
+            if xy_dist > YAW_RADIUS:
+                self.target_pose.pose.orientation.x = 0.0
+                self.target_pose.pose.orientation.y = 0.0
+                self.target_pose.pose.orientation.z = math.sin(yaw / 2.0)
+                self.target_pose.pose.orientation.w = math.cos(yaw / 2.0)
 
-        if (now - self.last_nav_log_time).nanoseconds > 1e9:
-            self.get_logger().info(f"[NAV]: WP {self.current_wp_index+1} | "f"Dist {dist:.3f} m")
-            self.last_nav_log_time = now
-            self.get_logger().info(f"[ORIENTATION]: Yaw to target: {math.degrees(yaw):.1f} degrees")
-
-        if dist < self.target_radius:
-
-            self.get_logger().info(f"[WAYPOINT]: {self.current_wp_index+1} reached "f"(distance {dist:.3f} m)")
-
-            self.current_wp_index += 1
-            self.prev_waypoint = wp
-
-            if self.current_wp_index < len(self.waypoints):
-
-                next_wp = self.waypoints[self.current_wp_index]
-
-                self.get_logger().info(f"[NAV]: Moving to waypoint {self.current_wp_index+1} | "f"X {next_wp[0]:.3f} | Y {next_wp[1]:.3f} | Z {next_wp[2]:.3f}")
+        return dist, xy_dist, dz, yaw
 
     def arming(self, val: bool):
         arm_req = CommandBool.Request()
@@ -314,7 +359,15 @@ class CommNode(Node):
         """Heartbeat for the drone"""
         # WAYPOINT NAVIGATION
         if self.test_active:
-            self.update_waypoint_navigation()
+            # FSM state dispatch
+            if self.state == STATE_TRANSIT:
+                self._update_transit()
+            elif self.state == STATE_DESCEND:
+                self._update_descend()
+            elif self.state == STATE_SCAN:
+                self._update_scan()
+            elif self.state == STATE_ASCEND:
+                self._update_ascend()
 
         # RETURN HOME
         elif self.return_home_active:   
@@ -325,8 +378,8 @@ class CommNode(Node):
             self.callback_land(req, res)
 
         self.target_pose.header.stamp = self.get_clock().now().to_msg()
-        # Route through local_planner_node when it is active; otherwise go direct.
-        if self.cmd_pose_pub.get_subscription_count() > 0:
+        # Route through local_planner_node when planner enabled; otherwise go direct to MAVROS.
+        if self.planner_enabled and self.cmd_pose_pub.get_subscription_count() > 0:
             self.cmd_pose_pub.publish(self.target_pose)
         else:
             self.local_pos_pub.publish(self.target_pose)
@@ -352,6 +405,107 @@ class CommNode(Node):
         self.waypoints_received = True
 
         self.get_logger().info(f"[WAYPOINTS]: Stored {len(self.waypoints)} waypoints successfully")
+
+    def _plate_confirmed_callback(self, msg: String):
+        """Receive confirmed license plate from plate_reader_node"""
+        plate = msg.data.strip()
+        if plate and self.state == STATE_SCAN:
+            self.confirmed_plate = plate
+            self.get_logger().info(f"[PLATE CONFIRMED]: {self.confirmed_plate}")
+            wp_index = self.scan_wp_index + 1 if self.scan_wp_index is not None else self.current_wp_index + 1
+            event_key = (wp_index, self.confirmed_plate)
+            if event_key not in self.logged_plate_events:
+                self.logged_plate_events.add(event_key)
+                self._append_mission_log({
+                    'event': 'plate_confirmed',
+                    'timestamp_s': round(self.get_clock().now().nanoseconds / 1e9, 3),
+                    'waypoint_index': wp_index,
+                    'plate': self.confirmed_plate,
+                    'state': self.state,
+                })
+
+    def _update_transit(self):
+        """Navigate waypoints at TRANSIT_ALT with planner enabled"""
+        # Waypoint have already been checked that they exist in Test service callback.
+        if self.current_wp_index >= len(self.waypoints):
+            # All waypoints done, return home
+            self.test_active = False
+            self.return_home_active = True
+            self.planner_enabled = True
+            self._append_mission_log({
+                'event': 'all_waypoints_complete',
+                'timestamp_s': round(self.get_clock().now().nanoseconds / 1e9, 3),
+                'state': self.state,
+            })
+            self.get_logger().info("[MISSION]: All waypoints reached, returning to home")
+            return
+
+        # Navigate to waypoint at transit altitude
+        dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.current_wp_index, TRANSIT_ALT)
+
+        now = self.get_clock().now()
+        if (now - self.last_nav_log_time).nanoseconds > 1e9:
+            self.get_logger().info(f"[NAV]: WP {self.current_wp_index+1} | Dist {dist:.3f} m | Yaw {math.degrees(yaw):.1f}°")
+            self.last_nav_log_time = now
+
+        # Waypoint reached, descend for scan
+        if dist < self.target_radius:
+            self.get_logger().info(f"[TRANSIT]: Waypoint {self.current_wp_index+1} reached")
+            self.planner_enabled = False
+            self.scan_wp_index = self.current_wp_index
+            self.scan_hold_orientation = self.target_pose.pose.orientation
+            self.state = STATE_DESCEND
+
+    def _update_descend(self):
+        """Descend to SCAN_ALT before enabling camera"""
+        # Navigate to scan altitude, holding orientation from transit phase
+        dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.scan_wp_index, SCAN_ALT, self.scan_hold_orientation)
+        
+        if abs(dz) < ASCEND_DESCEND_TOL:  # Reached scan altitude
+            self.state = STATE_SCAN
+            self.scan_start_time = self.get_clock().now()
+            self.confirmed_plate = None
+            self.get_logger().info(f"[SCAN]: At scan altitude {SCAN_ALT} m, camera enabled")
+
+    def _update_scan(self):
+        """Hold scanning phase at current waypoint"""
+        # Navigate to hold position at scan altitude
+        dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.scan_wp_index, SCAN_ALT, self.scan_hold_orientation)
+        
+        # Publish plate reader enabled signal (only during SCAN)
+        plate_msg = Bool()
+        plate_msg.data = True
+        self.plate_enable_pub.publish(plate_msg)
+        
+        now = self.get_clock().now()
+        scan_elapsed = (now - self.scan_start_time).nanoseconds / 1e9
+        
+        # Exit SCAN on either successful read or timeout, then run one shared ascent transition.
+        timed_out = scan_elapsed > SCAN_TIMEOUT_SEC
+        if self.confirmed_plate or timed_out:
+            if timed_out:
+                self.get_logger().warn(f"[SCAN]: Timeout at waypoint {self.current_wp_index+1}, ascending")
+
+            plate_msg = Bool()
+            plate_msg.data = False
+            self.plate_enable_pub.publish(plate_msg)
+            self.state = STATE_ASCEND
+            return
+
+    def _update_ascend(self):
+        """Ascend back to TRANSIT_ALT and enable planner"""
+        # Navigate to transit altitude, holding orientation from transit phase
+        dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.scan_wp_index, TRANSIT_ALT, self.scan_hold_orientation)
+        
+        if abs(dz) < ASCEND_DESCEND_TOL:  # Reached transit altitude
+            self.current_wp_index += 1
+            wp = self.waypoints[self.scan_wp_index]
+            self.prev_waypoint = np.array([wp[0], wp[1], TRANSIT_ALT])
+            self.planner_enabled = True
+            self.state = STATE_TRANSIT
+            if self.confirmed_plate:
+                self.get_logger().info(f"[WAYPOINT {self.scan_wp_index+1}]: Plate scanned: {self.confirmed_plate}")
+            self.get_logger().info(f"[ASCEND]: Reached transit altitude, moving to waypoint {self.current_wp_index+1}")
 
 
 def main(args=None):
