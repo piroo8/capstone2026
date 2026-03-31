@@ -136,6 +136,7 @@ class CommNode(Node):
     def callback_launch(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """Takeoff in place to TRANSIT_ALT"""
         if self.home_pose is None:
+            self.home_pose = PoseStamped()
             self.home_pose.pose = self.current_pos.pose
             self.get_logger().info(f"[HOME SET] X: {self.current_pos.pose.position.x:.3f} | Y: {self.current_pos.pose.position.y:.3f} | Z: {self.current_pos.pose.position.z:.3f}")
 
