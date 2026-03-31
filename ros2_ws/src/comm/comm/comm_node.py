@@ -86,7 +86,7 @@ class CommNode(Node):
         self.current_pos = PoseStamped()
         self.target_pose = PoseStamped()
         self.current_state = State()
-        self.home_pose = PoseStamped()
+        self.home_pose = None ## Needed like this for launch to store correctly
 
         # Waypoints
         self.waypoints = []
