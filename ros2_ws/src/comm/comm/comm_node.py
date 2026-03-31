@@ -120,6 +120,8 @@ class CommNode(Node):
         self.mission_log_path = None
         self.mission_log_entries = []
         self.logged_plate_events = set()
+        self.mission_log_fail_count = 0
+        self._MISSION_LOG_MAX_FAILS = 3
 
         self.get_logger().info('Waiting for MAVROS services...')
         self.arming_client.wait_for_service()
@@ -260,8 +262,19 @@ class CommNode(Node):
         payload = {
             'entries': self.mission_log_entries,
         }
-        with self.mission_log_path.open('w', encoding='utf-8') as handle:
-            json.dump(payload, handle, indent=2)
+        try:
+            with self.mission_log_path.open('w', encoding='utf-8') as handle:
+                json.dump(payload, handle, indent=2)
+            self.mission_log_fail_count = 0
+        except OSError as exc:
+            self.mission_log_fail_count += 1
+            self.get_logger().error(
+                f'[LOG]: Failed to write mission log ({self.mission_log_fail_count}/'
+                f'{self._MISSION_LOG_MAX_FAILS}): {exc}'
+            )
+            if self.mission_log_fail_count >= self._MISSION_LOG_MAX_FAILS:
+                self.get_logger().error('[LOG]: Disabling mission log after repeated failures.')
+                self.mission_log_path = None
 
     def _set_plate_reader_enabled(self, enabled: bool):
         if self.plate_reader_enabled == enabled:
