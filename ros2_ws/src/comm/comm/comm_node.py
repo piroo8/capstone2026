@@ -50,7 +50,7 @@ class CommNode(Node):
         self.current_pos = PoseStamped()
         self.target_pose = PoseStamped()
         self.current_state = State()
-        self.home_pose = PoseStamped()
+        self.home_pose = None
 
         # Waypoints
         self.waypoints = []
@@ -71,6 +71,7 @@ class CommNode(Node):
     def callback_launch(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """Takeoff in place to LAUNCH_ALT"""
         if self.home_pose is None:
+            self.home_pose = PoseStamped()
             self.home_pose.pose = self.current_pos.pose
             self.get_logger().info(f"[HOME SET] X: {self.current_pos.pose.position.x:.3f} | Y: {self.current_pos.pose.position.y:.3f} | Z: {self.current_pos.pose.position.z:.3f}")
 
@@ -150,6 +151,10 @@ class CommNode(Node):
             self.return_home_active = False
 
             return response
+
+        response.success = True
+        response.message = "Returning to home position."
+        return response
 
 
     def callback_abort(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
