@@ -4,11 +4,11 @@ from geometry_msgs.msg import PoseArray, Pose
 
 
 # Edit these waypoints for your space
-WAYPOINTS = [
-    (0.0, 0.0, 1.0),
-    (1.0, 0.0, 1.0),
-    (1.0, -1.0, 1.0),
-]
+# WAYPOINTS = [
+#     (0.0, 0.0, 1.0),
+#     (1.0, 0.0, 1.0),
+#     (1.0, -1.0, 1.0),
+# ]
 
 # Bigger square pattern for testing
 # WAYPOINTS = [
@@ -20,10 +20,10 @@ WAYPOINTS = [
 #     (1.0, 1.0, 1.0),
 # ]
 
-# WAYPOINTS = [
-#     (0.0, 0.0, 2.0),
-#     (3.0, 0.0, 2.0)
-# ]
+WAYPOINTS = [
+    (0.0, 0.0, 2.0),
+    (2.5, 0.0, 2.0)
+]
 
 class WaypointPublisher(Node):
     def __init__(self):

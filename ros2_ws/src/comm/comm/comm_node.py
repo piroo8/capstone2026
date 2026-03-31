@@ -12,7 +12,7 @@ import numpy as np
 STATES = ['LAUNCH, ARMING']
 MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
 
-LAUNCH_ALT = 0.5
+LAUNCH_ALT = 2
 Z_OFFSET = -0.125
 RADIUS = 0.2
 
@@ -326,7 +326,7 @@ class CommNode(Node):
 
         self.target_pose.header.stamp = self.get_clock().now().to_msg()
         # Route through local_planner_node when it is active; otherwise go direct.
-        if self.cmd_pose_pub.get_subscription_count() > 0:
+        if self.cmd_pose_pub.get_subscription_count() > 0 and self.test_active == True:
             self.cmd_pose_pub.publish(self.target_pose)
         else:
             self.local_pos_pub.publish(self.target_pose)
