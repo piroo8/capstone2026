@@ -107,7 +107,6 @@ class CommNode(Node):
         self.scan_start_time = None
         self.scan_wp_index = None
         self.scan_hold_orientation = None
-        self.planner_enabled = False
         self.plate_reader_ready = False
         self.plate_reader_enabled = False
         self.nav_stack_enabled = False
@@ -168,7 +167,6 @@ class CommNode(Node):
         self.test_active = True
         self.state = STATE_TRANSIT
         self.confirmed_plate = None
-        self.planner_enabled = True
         self.waiting_for_stack_ready = False
         self._set_plate_reader_enabled(False)
         self._set_nav_stack_enabled(True)
@@ -278,6 +276,18 @@ class CommNode(Node):
             self.last_occupancy_msg_time = None
             self.last_planner_msg_time = None
 
+    def _publish_control_heartbeat(self):
+        """Republish current control states so late subscribers converge quickly."""
+        plate_msg = Bool()
+        plate_msg.data = self.plate_reader_enabled
+        self.plate_enable_pub.publish(plate_msg)
+
+        nav_msg = Bool()
+        nav_msg.data = self.nav_stack_enabled
+        self.planner_enable_pub.publish(nav_msg)
+        self.occupancy_enable_pub.publish(nav_msg)
+        self.depth_enable_pub.publish(nav_msg)
+
     def _plate_ready_callback(self, msg: Bool):
         self.plate_reader_ready = msg.data
 
@@ -288,7 +298,7 @@ class CommNode(Node):
         self.last_occupancy_msg_time = self.get_clock().now()
 
     def _planner_fresh_callback(self, msg: PoseStamped):
-        if self.planner_enabled:
+        if self.nav_stack_enabled:
             self.last_planner_msg_time = self.get_clock().now()
 
     def _is_fresh(self, timestamp, now):
@@ -464,9 +474,12 @@ class CommNode(Node):
 
             self.callback_land(req, res)
 
+        # Keep enable-state topics fresh for nodes that (re)subscribe mid-mission.
+        self._publish_control_heartbeat()
+
         self.target_pose.header.stamp = self.get_clock().now().to_msg()
         # Route through local_planner_node when planner enabled; otherwise go direct to MAVROS.
-        if self.planner_enabled and self.cmd_pose_pub.get_subscription_count() > 0:
+        if self.nav_stack_enabled and self.cmd_pose_pub.get_subscription_count() > 0:
             self.cmd_pose_pub.publish(self.target_pose)
         else:
             self.local_pos_pub.publish(self.target_pose)
@@ -521,7 +534,6 @@ class CommNode(Node):
             # All waypoints done, return home
             self.test_active = False
             self.return_home_active = True
-            self.planner_enabled = True
             self._set_plate_reader_enabled(False)
             self._append_mission_log({
                 'event': 'all_waypoints_complete',
@@ -542,7 +554,6 @@ class CommNode(Node):
         # Waypoint reached, descend for scan
         if dist < self.target_radius:
             self.get_logger().info(f"[TRANSIT]: Waypoint {self.current_wp_index+1} reached")
-            self.planner_enabled = False
             self.scan_wp_index = self.current_wp_index
             self.scan_hold_orientation = self.target_pose.pose.orientation
             self.scan_start_time = None
@@ -606,7 +617,6 @@ class CommNode(Node):
             if not self.waiting_for_stack_ready:
                 self._set_nav_stack_enabled(True, reset_freshness=True)
                 self.waiting_for_stack_ready = True
-                self.planner_enabled = True
 
             now = self.get_clock().now()
             if not self._planner_stack_ready(now):
@@ -619,7 +629,6 @@ class CommNode(Node):
             self.current_wp_index += 1
             wp = self.waypoints[self.scan_wp_index]
             self.prev_waypoint = np.array([wp[0], wp[1], TRANSIT_ALT])
-            self.planner_enabled = True
             self.state = STATE_TRANSIT
             if self.confirmed_plate:
                 self.get_logger().info(f"[WAYPOINT {self.scan_wp_index+1}]: Plate scanned: {self.confirmed_plate}")
