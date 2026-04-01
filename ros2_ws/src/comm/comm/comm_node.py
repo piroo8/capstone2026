@@ -1,3 +1,12 @@
+"""
+CommNode for drone mission control.
+
+NEW: Branch: feature/comm-plate-scan-revisit-v3
+NEW: Changes: Simplified path planner (direct waypoint navigation without obstacle avoidance).
+NEW:          Removed descend/ascend FSM states for constant altitude scanning at waypoint Z.
+NEW:          Disabled nav stack (local_planner, occupancy, depth) for minimal complexity.
+"""
+
 import math
 import json
 from pathlib import Path
@@ -23,8 +32,6 @@ YAW_RADIUS = 0.5
 
 # Scanning parameters
 TRANSIT_ALT = 0.5
-SCAN_ALT = 0.8
-ASCEND_DESCEND_TOL = 0.15
 SCAN_TIMEOUT_SEC = 15.0
 FRESHNESS_TIMEOUT_SEC = 1.0
 WAIT_LOG_PERIOD_SEC = 1.0
@@ -32,9 +39,8 @@ WAIT_LOG_PERIOD_SEC = 1.0
 # FSM States
 STATE_IDLE = 'IDLE'
 STATE_TRANSIT = 'TRANSIT'
-STATE_DESCEND = 'DESCEND'
 STATE_SCAN = 'SCAN'
-STATE_ASCEND = 'ASCEND'
+# NEW: Removed STATE_DESCEND and STATE_ASCEND for simplified FSM (no altitude transitions)
 
 
 class CommNode(Node):
@@ -172,7 +178,7 @@ class CommNode(Node):
         self.confirmed_plate = None
         self.waiting_for_stack_ready = False
         self._set_plate_reader_enabled(False)
-        self._set_nav_stack_enabled(True)
+        self._set_nav_stack_enabled(False)  # NEW: Disabled for simple direct navigation (no obstacle avoidance)
         self.logged_plate_events.clear()
         self._start_mission_log()
 
@@ -470,15 +476,11 @@ class CommNode(Node):
         """Heartbeat for the drone"""
         # WAYPOINT NAVIGATION
         if self.test_active:
-            # FSM state dispatch
+            # NEW: FSM state dispatch (simplified: removed DESCEND/ASCEND for constant altitude scanning)
             if self.state == STATE_TRANSIT:
                 self._update_transit()
-            elif self.state == STATE_DESCEND:
-                self._update_descend()
             elif self.state == STATE_SCAN:
                 self._update_scan()
-            elif self.state == STATE_ASCEND:
-                self._update_ascend()
 
         # RETURN HOME
         elif self.return_home_active:   
@@ -539,9 +541,9 @@ class CommNode(Node):
                 })
 
     def _update_transit(self):
-        """Navigate waypoints at TRANSIT_ALT with planner enabled"""
+        """NEW: Navigate waypoints at their specified altitudes with planner disabled (direct navigation)"""
         self._set_plate_reader_enabled(False)
-        self._set_nav_stack_enabled(True)
+        self._set_nav_stack_enabled(False)  # NEW: Keep disabled for simple path planning
 
         # Waypoint have already been checked that they exist in Test service callback.
         if self.current_wp_index >= len(self.waypoints):
@@ -557,15 +559,16 @@ class CommNode(Node):
             self.get_logger().info("[MISSION]: All waypoints reached, returning to home")
             return
 
-        # Navigate to waypoint at transit altitude
-        dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.current_wp_index, TRANSIT_ALT)
+        # NEW: Navigate to waypoint at its altitude (supports variable altitudes)
+        wp_z = self.waypoints[self.current_wp_index][2]
+        dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.current_wp_index, wp_z)
 
         now = self.get_clock().now()
         if (now - self.last_nav_log_time).nanoseconds > 1e9:
             self.get_logger().info(f"[NAV]: WP {self.current_wp_index+1} | Dist {dist:.3f} m | Yaw {math.degrees(yaw):.1f}°")
             self.last_nav_log_time = now
 
-        # Waypoint reached, descend for scan
+        # Waypoint reached, start scan
         if dist < self.target_radius:
             self.get_logger().info(f"[TRANSIT]: Waypoint {self.current_wp_index+1} reached")
             self.scan_wp_index = self.current_wp_index
@@ -574,35 +577,16 @@ class CommNode(Node):
             self.plate_reader_ready = False
             self._set_nav_stack_enabled(False)
             self._set_plate_reader_enabled(True)
-            self.state = STATE_DESCEND
-
-    def _update_descend(self):
-        """Descend to SCAN_ALT before enabling camera"""
-        self._set_nav_stack_enabled(False)
-        self._set_plate_reader_enabled(True)
-
-        # Navigate to scan altitude, holding orientation from transit phase
-        dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.scan_wp_index, SCAN_ALT, self.scan_hold_orientation)
-        
-        if abs(dz) < ASCEND_DESCEND_TOL:  # Reached scan altitude
-            if self.plate_reader_ready:
-                self.state = STATE_SCAN
-                self.scan_start_time = self.get_clock().now()
-                self.confirmed_plate = None
-                self.get_logger().info(f"[SCAN]: At scan altitude {SCAN_ALT} m, camera enabled")
-            else:
-                now = self.get_clock().now()
-                if (now - self.last_scan_wait_log_time).nanoseconds / 1e9 > WAIT_LOG_PERIOD_SEC:
-                    self.get_logger().warn('[SCAN]: Waiting for plate_reader ready before starting timeout')
-                    self.last_scan_wait_log_time = now
+            self.state = STATE_SCAN
 
     def _update_scan(self):
-        """Hold scanning phase at current waypoint"""
+        """NEW: Hold scanning phase at current waypoint (at its altitude, no descend/ascend)"""
         self._set_nav_stack_enabled(False)
         self._set_plate_reader_enabled(True)
 
-        # Navigate to hold position at scan altitude
-        dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.scan_wp_index, SCAN_ALT, self.scan_hold_orientation)
+        # NEW: Navigate to hold position at waypoint altitude (scanning happens here)
+        wp_z = self.waypoints[self.scan_wp_index][2]
+        dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.scan_wp_index, wp_z, self.scan_hold_orientation)
 
         if self.scan_start_time is None:
             self.scan_start_time = self.get_clock().now()
@@ -610,43 +594,20 @@ class CommNode(Node):
         now = self.get_clock().now()
         scan_elapsed = (now - self.scan_start_time).nanoseconds / 1e9
         
-        # Exit SCAN on either successful read or timeout, then run one shared ascent transition.
+        # Exit SCAN on either successful read or timeout, then proceed to next waypoint.
         timed_out = scan_elapsed > SCAN_TIMEOUT_SEC
         if self.confirmed_plate or timed_out:
             if timed_out:
-                self.get_logger().warn(f"[SCAN]: Timeout at waypoint {self.current_wp_index+1}, ascending")
+                self.get_logger().warn(f"[SCAN]: Timeout at waypoint {self.current_wp_index+1}")
 
             self._set_plate_reader_enabled(False)
-            self.state = STATE_ASCEND
-            return
-
-    def _update_ascend(self):
-        """Ascend back to TRANSIT_ALT and enable planner"""
-        self._set_plate_reader_enabled(False)
-
-        # Navigate to transit altitude, holding orientation from transit phase
-        dist, xy_dist, dz, yaw = self.update_waypoint_navigation(self.scan_wp_index, TRANSIT_ALT, self.scan_hold_orientation)
-        
-        if abs(dz) < ASCEND_DESCEND_TOL:  # Reached transit altitude
-            if not self.waiting_for_stack_ready:
-                self._set_nav_stack_enabled(True, reset_freshness=True)
-                self.waiting_for_stack_ready = True
-
-            now = self.get_clock().now()
-            if not self._planner_stack_ready(now):
-                if (now - self.last_stack_wait_log_time).nanoseconds / 1e9 > WAIT_LOG_PERIOD_SEC:
-                    self.get_logger().warn('[ASCEND]: Holding for fresh depth/occupancy/planner publishes before transit')
-                    self.last_stack_wait_log_time = now
-                return
-
-            self.waiting_for_stack_ready = False
             self.current_wp_index += 1
             wp = self.waypoints[self.scan_wp_index]
-            self.prev_waypoint = np.array([wp[0], wp[1], TRANSIT_ALT])
+            self.prev_waypoint = np.array([wp[0], wp[1], wp[2]])  # Use actual waypoint Z for next navigation
             self.state = STATE_TRANSIT
             if self.confirmed_plate:
                 self.get_logger().info(f"[WAYPOINT {self.scan_wp_index+1}]: Plate scanned: {self.confirmed_plate}")
-            self.get_logger().info(f"[ASCEND]: Reached transit altitude, moving to waypoint {self.current_wp_index+1}")
+            self.get_logger().info(f"[SCAN]: Proceeding to waypoint {self.current_wp_index+1}")
 
 
 def main(args=None):
