@@ -46,6 +46,9 @@ tmux split-window -h -t "$SESSION"
 tmux select-pane -t 8
 tmux split-window -h -t "$SESSION"
 
+# 6b. Split once more for plate reader pane.
+tmux split-window -h -t 11
+
 # 7. Populate panes with text (but don't press Enter)
 tmux send-keys -t 0  "ros2 launch px4_autonomy_modules mavros.launch.py gcs_url:=udp://@$GCS_IP"
 tmux send-keys -t 1  "ros2 launch realsense2_camera rs_launch.py"
@@ -58,9 +61,9 @@ tmux send-keys -t 7  "ros2 run waypoint_publisher waypoint_publisher"
 tmux send-keys -t 8  "ros2 service call /rob498_drone_8/comm/launch std_srvs/srv/Trigger {}"
 tmux send-keys -t 9  "ros2 service call /rob498_drone_8/comm/test std_srvs/srv/Trigger {}"
 tmux send-keys -t 10 "ros2 service call /rob498_drone_8/comm/abort std_srvs/srv/Trigger {}"
-tmux send-keys -t 11 "ros2 bag record /stereo/disp_vis occupancy_node/viz -o wed_"
+tmux send-keys -t 11 "ros2 run comm plate_reader_node"
+tmux send-keys -t 12 "ros2 bag record /stereo/disp_vis occupancy_node/viz -o thurs_"
 #tmux send-keys -t 10 "./video.sh \"$GCS_IP\""
-# pane 11 intentionally left blank
 
 # 8. Attach
 tmux attach-session -t "$SESSION"

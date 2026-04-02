@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-"""ROS wrapper for the TensorRT license-plate pipeline.
-
-This node stays idle until the mission node enables scanning. During scans it
-runs the detector/recognizer, applies multi-frame voting, and publishes the
-current candidate plus the confirmed 7-character plate string.
-"""
-
-from __future__ import annotations
-
 from collections import Counter, deque
 
 import cv2
@@ -17,60 +7,50 @@ from cv_bridge import CvBridge
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, String
+import tensorrt as trt
+import pycuda.autoinit  # noqa: F401
+import pycuda.driver as cuda
 
-from parking_enforcement.config import (
-    BLANK,
-    CHARS,
-    DETECT_EVERY,
-    DRONE_NS,
-    LPD_ENGINE_PATH,
-    LPD_H,
-    LPD_W,
-    LPR_ENGINE_PATH,
-    LPR_H,
-    LPR_W,
-    MIN_DET_CONF,
-    MIN_READ_CONF,
-    MIN_VOTES,
-    PAD_BOTTOM,
-    PAD_LEFT,
-    PAD_RIGHT,
-    PAD_TOP,
-    PLATE_CONFIRMED_TOPIC,
-    PLATE_CURRENT_TOPIC,
-    PLATE_DEBUG_IMAGE_TOPIC,
-    PLATE_ENABLED_TOPIC,
-    RGB_IMAGE_TOPIC,
-    VOTE_WINDOW,
-)
+# Engine paths
+LPD_ENGINE_PATH = '/home/jetson/engines/lpdnet_fp32.engine'
+LPR_ENGINE_PATH = '/home/jetson/engines/lprnet_fp32.engine'
 
-try:
-    import tensorrt as trt
-    import pycuda.autoinit  # noqa: F401  # Creates the CUDA context once at import time.
-    import pycuda.driver as cuda
-except Exception as exc:  # pragma: no cover - depends on Jetson runtime.
-    trt = None
-    cuda = None
-    TRT_IMPORT_ERROR = exc
-else:
-    TRT_IMPORT_ERROR = None
+# Model / decode defaults
+LPD_W, LPD_H = 640, 480
+LPR_W, LPR_H = 96, 48
+CHARS = '0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ'
+BLANK = 35
+DETECT_EVERY = 15
+PAD_LEFT = 15
+PAD_RIGHT = 0
+PAD_TOP = 10
+PAD_BOTTOM = 10
 
-TRT_LOGGER = trt.Logger(trt.Logger.WARNING) if trt is not None else None
+# Confirmation behavior
+REQUIRED_PLATE_LEN = 7
+MIN_VOTES = 10
+VOTE_WINDOW = 40
+MIN_DET_CONF = 0.60
+MIN_READ_CONF = 0.45
+
+# Topics
+DRONE_NS = 'rob498_drone_8'
+RGB_IMAGE_TOPIC = '/camera/image_raw'
+PLATE_ENABLED_TOPIC = '/plate_reader/enabled'
+PLATE_READY_TOPIC = '/plate_reader/ready'
+PLATE_CONFIRMED_TOPIC = '/plate_reader/confirmed'
+PLATE_CURRENT_TOPIC = '/plate_reader/current'
+# PLATE_DEBUG_IMAGE_TOPIC = '/plate_reader/debug_image'  # disabled by default to save compute
+
+TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
 
 class TRTModel:
-    """Minimal TensorRT runner for the static-shape engines used in the demo."""
-
     def __init__(self, engine_path: str):
         with open(engine_path, 'rb') as handle:
             runtime = trt.Runtime(TRT_LOGGER)
             self.engine = runtime.deserialize_cuda_engine(handle.read())
-        if self.engine is None:
-            raise RuntimeError(f'Could not deserialize TensorRT engine: {engine_path}')
-
         self.context = self.engine.create_execution_context()
-        if self.context is None:
-            raise RuntimeError(f'Could not create TensorRT execution context: {engine_path}')
 
         self.inputs = []
         self.outputs = []
@@ -90,8 +70,6 @@ class TRTModel:
                 self.outputs.append(payload)
 
     def infer(self, *input_arrays):
-        """Copy inputs to the device, execute once, and return reshaped outputs."""
-
         for index, arr in enumerate(input_arrays):
             np.copyto(self.inputs[index]['host'], arr.ravel())
             cuda.memcpy_htod(self.inputs[index]['device'], self.inputs[index]['host'])
@@ -106,21 +84,15 @@ class TRTModel:
 
 
 class PlateVoter:
-    """Confirm a plate only after it has been seen repeatedly in a short window."""
-
     def __init__(self, min_votes: int = MIN_VOTES, window: int = VOTE_WINDOW):
         self.min_votes = min_votes
         self.window = deque(maxlen=window)
 
     def clear(self):
-        """Reset the vote history when a new scan starts."""
-
         self.window.clear()
 
     def update(self, plate_text: str, det_conf: float, read_conf: float):
-        """Return a confirmed plate once the same reading has enough votes."""
-
-        if len(plate_text) != 7:
+        if len(plate_text) != REQUIRED_PLATE_LEN:
             return None
         if det_conf < MIN_DET_CONF or read_conf < MIN_READ_CONF:
             return None
@@ -134,8 +106,6 @@ class PlateVoter:
 
 
 class PlateReaderNode(Node):
-    """Run the plate detector/recognizer only when the mission enters a scan state."""
-
     def __init__(self):
         super().__init__(f'{DRONE_NS}_plate_reader')
         self.bridge = CvBridge()
@@ -144,32 +114,25 @@ class PlateReaderNode(Node):
         self.last_detections = []
         self.last_confirmed_plate = ''
         self.voter = PlateVoter()
+        self.ready_latched = False
 
+        self.ready_pub = self.create_publisher(Bool, PLATE_READY_TOPIC, 10)
         self.confirmed_pub = self.create_publisher(String, PLATE_CONFIRMED_TOPIC, 10)
         self.current_pub = self.create_publisher(String, PLATE_CURRENT_TOPIC, 10)
-        self.debug_pub = self.create_publisher(Image, PLATE_DEBUG_IMAGE_TOPIC, 10)
 
         self.create_subscription(Image, RGB_IMAGE_TOPIC, self._image_cb, 10)
         self.create_subscription(Bool, PLATE_ENABLED_TOPIC, self._enable_cb, 10)
 
         self.models_ready = False
-        if trt is None or cuda is None:
-            self.get_logger().error(f'TensorRT/PyCUDA import failed: {TRT_IMPORT_ERROR}')
-            return
-
-        try:
-            self.get_logger().info(f'Loading LPD engine from {LPD_ENGINE_PATH}')
-            self.lpd_model = TRTModel(LPD_ENGINE_PATH)
-            self.get_logger().info(f'Loading LPR engine from {LPR_ENGINE_PATH}')
-            self.lpr_model = TRTModel(LPR_ENGINE_PATH)
-            self.models_ready = True
-            self.get_logger().info('Plate reader ready')
-        except Exception as exc:
-            self.get_logger().error(f'Failed to initialize plate reader: {exc}')
+        self.get_logger().info(f'Loading LPD engine from {LPD_ENGINE_PATH}')
+        self.lpd_model = TRTModel(LPD_ENGINE_PATH)
+        self.get_logger().info(f'Loading LPR engine from {LPR_ENGINE_PATH}')
+        self.lpr_model = TRTModel(LPR_ENGINE_PATH)
+        self.models_ready = True
+        self._publish_ready(False)
+        self.get_logger().info(f'[READY] Plate reader online. Listening on {RGB_IMAGE_TOPIC}, gated by {PLATE_ENABLED_TOPIC}')
 
     def _enable_cb(self, msg: Bool):
-        """Turn the reader on only during mission scan phases."""
-
         if msg.data == self.enabled:
             return
 
@@ -177,25 +140,30 @@ class PlateReaderNode(Node):
         self.frame_id = 0
         self.last_detections = []
         self.last_confirmed_plate = ''
+        self.ready_latched = False
         self.voter.clear()
+        self._publish_ready(False)
         state = 'enabled' if self.enabled else 'disabled'
         self.get_logger().info(f'Plate reader {state}')
 
-    def _image_cb(self, msg: Image):
-        """Process a color frame when the mission node has enabled plate scanning."""
+    def _publish_ready(self, ready: bool):
+        ready_msg = Bool()
+        ready_msg.data = ready
+        self.ready_pub.publish(ready_msg)
 
+    def _image_cb(self, msg: Image):
         if not self.enabled or not self.models_ready:
             return
 
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         self.frame_id += 1
 
-        # Run the detector every few frames, then re-read the strongest recent box.
         if self.frame_id % DETECT_EVERY == 0:
             lpd_tensor, scale_x, scale_y = preprocess_lpd(frame)
             lpd_out = self.lpd_model.infer(lpd_tensor)
             self.last_detections = decode_lpd(lpd_out[0], lpd_out[1], scale_x, scale_y)
 
+        # DEBUG-ONLY: keep overlay drawing for visual diagnostics during testing.
         overlay = frame.copy()
         current_plate = ''
 
@@ -219,6 +187,9 @@ class PlateReaderNode(Node):
                 char_confs = lpr_out[0][0].astype(np.float32)
                 read_conf = float(char_confs.mean())
                 current_plate = plate_text
+                
+                if len(plate_text) == REQUIRED_PLATE_LEN:
+                    self.get_logger().debug(f'[PLATE] Detected: {plate_text} (det_conf={det_conf:.2f}, read_conf={read_conf:.2f})')
 
                 cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 cv2.putText(
@@ -238,21 +209,18 @@ class PlateReaderNode(Node):
                     confirmed_msg.data = confirmed
                     self.confirmed_pub.publish(confirmed_msg)
                     self.last_confirmed_plate = confirmed
-                    self.get_logger().info(f'Confirmed plate: {confirmed}')
+                    self.get_logger().info(f'[SCAN_COMPLETE] Confirmed plate: {confirmed} (votes={MIN_VOTES}/{VOTE_WINDOW})')
 
         current_msg = String()
         current_msg.data = current_plate
         self.current_pub.publish(current_msg)
 
-        if self.debug_pub.get_subscription_count() > 0:
-            debug_msg = self.bridge.cv2_to_imgmsg(overlay, encoding='bgr8')
-            debug_msg.header = msg.header
-            self.debug_pub.publish(debug_msg)
+        if not self.ready_latched:
+            self._publish_ready(True)
+            self.ready_latched = True
 
 
 def ctc_decode(pred):
-    """Collapse repeated class IDs and remove the CTC blank token."""
-
     plate = []
     prev = BLANK
     for token in pred:
@@ -263,8 +231,6 @@ def ctc_decode(pred):
 
 
 def preprocess_lpd(frame):
-    """Resize and normalize an RGB image for the plate detector engine."""
-
     orig_h, orig_w = frame.shape[:2]
     scale_x = orig_w / LPD_W
     scale_y = orig_h / LPD_H
@@ -277,8 +243,6 @@ def preprocess_lpd(frame):
 
 
 def decode_lpd(cov, bbox, scale_x, scale_y, conf_thresh=0.50):
-    """Decode the detector heatmap into pixel-space boxes, then apply NMS."""
-
     cov = cov.squeeze()
     bbox = bbox.squeeze()
     if bbox.shape[-1] == 4:
@@ -322,8 +286,6 @@ def decode_lpd(cov, bbox, scale_x, scale_y, conf_thresh=0.50):
 
 
 def preprocess_lpr(crop_bgr):
-    """Resize and normalize a plate crop for the LPR engine."""
-
     img = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
     img = cv2.resize(img, (LPR_W, LPR_H))
     x = img.astype(np.float32) / 255.0
@@ -333,8 +295,6 @@ def preprocess_lpr(crop_bgr):
 
 
 def main(args=None):
-    """Spin the plate reader node until shutdown."""
-
     rclpy.init(args=args)
     node = PlateReaderNode()
     try:

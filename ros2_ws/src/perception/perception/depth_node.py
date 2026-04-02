@@ -3,6 +3,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image, CameraInfo
 from stereo_msgs.msg import DisparityImage
+from std_msgs.msg import Bool
 from cv_bridge import CvBridge
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 from tf2_ros import Buffer, TransformListener
@@ -99,8 +100,14 @@ class DepthNode(Node):
         self.frame_count = 0
         self.process_every_n = SKIP_FRAMES
         self.crop_start_col = 0
+        self.enabled = False
+
+        self.create_subscription(Bool, '/perception/depth_enabled', self._enable_cb, 10)
 
         self.get_logger().info('Waiting for camera info and TF...')
+
+    def _enable_cb(self, msg: Bool):
+        self.enabled = msg.data
 
     def _cam1_intrinsics_cb(self, msg):
         if self.K1 is not None:
@@ -191,6 +198,9 @@ class DepthNode(Node):
             f'Output: {scaled_size[0] - self.crop_start_col}x{scaled_size[1]}')
 
     def _sync_cb(self, left_msg, right_msg):
+        if not self.enabled:
+            return
+
         if not self.maps_computed:
             return
 
