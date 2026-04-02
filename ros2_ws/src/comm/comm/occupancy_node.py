@@ -26,6 +26,8 @@ OCCUPANCY_QOS = QoSProfile(
     durability=DurabilityPolicy.VOLATILE,
 )
 
+BLOCKED_LOG_PERIOD_SEC = 1.0
+
 MIN_VALID_PX = 8
 PERCENTILE = 90
 
@@ -83,6 +85,8 @@ class OccupancyNode(Node):
         self.current_pose = None
         self.target_pose = None
         self.enabled = False
+        self._blocked_reason = None
+        self._last_blocked_log_time = None
 
         self.cam_info_sub = self.create_subscription(
             CameraInfo, 'disparity/camera_info', self._cam_info_cb, qos_profile_sensor_data)
@@ -120,7 +124,15 @@ class OccupancyNode(Node):
     # ------------------------------------------------------------------
     def disparity_callback(self, msg: DisparityImage):
         if not self.enabled:
+            self._log_blocked_state(
+                'disabled',
+                'Occupancy idle: /occupancy_node/enabled = false; early-returning from disparity_callback().',
+            )
             return
+
+        self._clear_blocked_state(
+            'Occupancy resumed: /occupancy_node/enabled = true; disparity_callback() active again.'
+        )
 
         f = float(msg.f)
         B = abs(float(msg.t))
@@ -190,6 +202,31 @@ class OccupancyNode(Node):
         self.viz_pub.publish(viz_msg)
 
         self._log_occupancy_summary(grid, valid_cols.size, W)
+
+    def _log_blocked_state(self, reason: str, message: str):
+        now = self.get_clock().now()
+        if self._blocked_reason != reason:
+            self._blocked_reason = reason
+            self._last_blocked_log_time = now
+            self.get_logger().info(message)
+            return
+
+        if self._last_blocked_log_time is None:
+            self._last_blocked_log_time = now
+            self.get_logger().info(message)
+            return
+
+        elapsed_s = (now - self._last_blocked_log_time).nanoseconds / 1e9
+        if elapsed_s >= BLOCKED_LOG_PERIOD_SEC:
+            self._last_blocked_log_time = now
+            self.get_logger().info(message)
+
+    def _clear_blocked_state(self, message: str):
+        if self._blocked_reason is None:
+            return
+        self._blocked_reason = None
+        self._last_blocked_log_time = None
+        self.get_logger().info(message)
 
     # ------------------------------------------------------------------
     def _log_occupancy_summary(self, grid: np.ndarray, valid_col_count: int, image_width: int):

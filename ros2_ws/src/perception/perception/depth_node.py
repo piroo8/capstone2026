@@ -17,6 +17,7 @@ SKIP_FRAMES = 1 # process every Nth frame for performance
 NUM_DISPARITIES = 64
 # Manual crop for the invalid left disparity strip. Tune this in pixels.
 LEFT_CROP_PIXELS = 62
+BLOCKED_LOG_PERIOD_SEC = 1.0
 
 class DepthNode(Node):
     def __init__(self):
@@ -101,6 +102,8 @@ class DepthNode(Node):
         self.process_every_n = SKIP_FRAMES
         self.crop_start_col = 0
         self.enabled = False
+        self._blocked_reason = None
+        self._last_blocked_log_time = None
 
         self.create_subscription(Bool, '/perception/depth_enabled', self._enable_cb, 10)
 
@@ -199,10 +202,18 @@ class DepthNode(Node):
 
     def _sync_cb(self, left_msg, right_msg):
         if not self.enabled:
+            self._log_blocked_state(
+                'disabled',
+                'Depth idle: /perception/depth_enabled = false; early-returning from _sync_cb().',
+            )
             return
 
         if not self.maps_computed:
             return
+
+        self._clear_blocked_state(
+            'Depth resumed: /perception/depth_enabled = true; _sync_cb() active again.'
+        )
 
         self.frame_count += 1
         if self.frame_count % self.process_every_n != 0:
@@ -268,6 +279,31 @@ class DepthNode(Node):
             disp_vis_msg = self.bridge.cv2_to_imgmsg(disp_vis, encoding='bgr8')
             disp_vis_msg.header = left_msg.header
             self.disp_vis_pub.publish(disp_vis_msg)
+
+    def _log_blocked_state(self, reason: str, message: str):
+        now = self.get_clock().now()
+        if self._blocked_reason != reason:
+            self._blocked_reason = reason
+            self._last_blocked_log_time = now
+            self.get_logger().info(message)
+            return
+
+        if self._last_blocked_log_time is None:
+            self._last_blocked_log_time = now
+            self.get_logger().info(message)
+            return
+
+        elapsed_s = (now - self._last_blocked_log_time).nanoseconds / 1e9
+        if elapsed_s >= BLOCKED_LOG_PERIOD_SEC:
+            self._last_blocked_log_time = now
+            self.get_logger().info(message)
+
+    def _clear_blocked_state(self, message: str):
+        if self._blocked_reason is None:
+            return
+        self._blocked_reason = None
+        self._last_blocked_log_time = None
+        self.get_logger().info(message)
 
 
 def main(args=None):

@@ -11,7 +11,7 @@ from stereo_msgs.msg import DisparityImage
 from mavros_msgs.srv import CommandBool, SetMode, CommandLong
 from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import PoseArray
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Int32MultiArray, String
 import numpy as np
 
 MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
@@ -22,7 +22,7 @@ RADIUS = 0.2
 YAW_RADIUS = 0.5
 
 # Scanning parameters
-TRANSIT_ALT = 0.5
+TRANSIT_ALT = 2.0
 SCAN_ALT = 0.8
 ASCEND_DESCEND_TOL = 0.15
 SCAN_TIMEOUT_SEC = 15.0
@@ -35,6 +35,9 @@ STATE_TRANSIT = 'TRANSIT'
 STATE_DESCEND = 'DESCEND'
 STATE_SCAN = 'SCAN'
 STATE_ASCEND = 'ASCEND'
+
+WAYPOINT_TOPIC = 'rob498_drone_8/comm/waypoints'
+WAYPOINT_SCAN_FLAGS_TOPIC = 'rob498_drone_8/comm/waypoint_scan_flags'
 
 
 class CommNode(Node):
@@ -54,7 +57,8 @@ class CommNode(Node):
         self.state_sub = self.create_subscription(State, 'mavros/state', self._state_callback, 10)
         self.pos_sub = self.create_subscription(PoseStamped, 'mavros/local_position/pose', self._pos_callback, qos_profile_sensor_data)
         self.local_pos_pub = self.create_publisher(PoseStamped, 'mavros/setpoint_position/local', 10)
-        self.waypoint_sub = self.create_subscription(PoseArray,'rob498_drone_8/comm/waypoints',self._waypoint_callback, 10)
+        self.waypoint_sub = self.create_subscription(PoseArray, WAYPOINT_TOPIC, self._waypoint_callback, 10)
+        self.waypoint_scan_flags_sub = self.create_subscription(Int32MultiArray, WAYPOINT_SCAN_FLAGS_TOPIC, self._waypoint_scan_flags_callback, 10)
         # Routed to local_planner_node when it is running; planner then publishes to MAVROS.
         self.cmd_pose_pub = self.create_publisher(PoseStamped, 'rob498_drone_8/cmd_pose', 10)
 
@@ -92,6 +96,8 @@ class CommNode(Node):
         # Waypoints
         self.waypoints = []
         self.waypoints_received = False
+        self.waypoint_scan_flags = []
+        self.waypoint_scan_flags_received = False
         self.current_wp_index = 0
         self.target_radius = RADIUS
         self.test_active = False
@@ -161,9 +167,26 @@ class CommNode(Node):
     def callback_test(self, request, response):
 
         if not self.waypoints_received:
-            self.get_logger().warn("[TEST]: Cannot start test — no waypoints received")
+            self.get_logger().warn("[TEST]: Cannot start test - no waypoints received")
             response.success = False
             response.message = "No waypoints received"
+            return response
+
+        if not self.waypoint_scan_flags_received:
+            self.get_logger().warn("[TEST]: Cannot start test - no waypoint scan flags received")
+            response.success = False
+            response.message = "No waypoint scan flags received"
+            return response
+
+        if len(self.waypoints) != len(self.waypoint_scan_flags):
+            self.get_logger().warn(
+                "[TEST]: Cannot start test - waypoint count does not match scan-flag count"
+            )
+            response.success = False
+            response.message = (
+                f"Waypoint count ({len(self.waypoints)}) does not match "
+                f"scan-flag count ({len(self.waypoint_scan_flags)})"
+            )
             return response
 
         self.prev_waypoint = np.array([self.current_pos.pose.position.x, self.current_pos.pose.position.y, self.current_pos.pose.position.z])
@@ -171,6 +194,10 @@ class CommNode(Node):
         self.test_active = True
         self.state = STATE_TRANSIT
         self.confirmed_plate = None
+        self.scan_start_time = None
+        self.scan_wp_index = None
+        self.scan_hold_orientation = None
+        self.plate_reader_ready = False
         self.waiting_for_stack_ready = False
         self._set_plate_reader_enabled(False)
         self._set_nav_stack_enabled(True)
@@ -184,8 +211,6 @@ class CommNode(Node):
         return response
 
     def callback_land(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
-        """RTL and land"""
-        # Set target to home pose exactly
         """Return toward home XY/heading, then auto-land."""
 
         if self.home_set is False:
@@ -529,6 +554,20 @@ class CommNode(Node):
 
         self.get_logger().info(f"[WAYPOINTS]: Stored {len(self.waypoints)} waypoints successfully")
 
+    def _waypoint_scan_flags_callback(self, msg: Int32MultiArray):
+        if self.waypoint_scan_flags_received:
+            return
+
+        self.waypoint_scan_flags = [bool(flag) for flag in msg.data]
+        self.waypoint_scan_flags_received = True
+
+        self.get_logger().info(
+            f"[WAYPOINT FLAGS]: Stored {len(self.waypoint_scan_flags)} scan flags successfully"
+        )
+        for i, scan_plate in enumerate(self.waypoint_scan_flags):
+            waypoint_type = 'scan' if scan_plate else 'nav-only'
+            self.get_logger().info(f"[WAYPOINT FLAG {i+1}]: {waypoint_type}")
+
     def _plate_confirmed_callback(self, msg: String):
         """Receive confirmed license plate from plate_reader_node"""
         plate = msg.data.strip()
@@ -577,6 +616,31 @@ class CommNode(Node):
         # Waypoint reached, descend for scan
         if dist < self.target_radius:
             self.get_logger().info(f"[TRANSIT]: Waypoint {self.current_wp_index+1} reached")
+            if not self.waypoint_scan_flags[self.current_wp_index]:
+                reached_wp_index = self.current_wp_index
+                wp = self.waypoints[reached_wp_index]
+                self.prev_waypoint = np.array([wp[0], wp[1], TRANSIT_ALT])
+                self.current_wp_index += 1
+                self.scan_wp_index = None
+                self.scan_hold_orientation = None
+                self.scan_start_time = None
+                self.plate_reader_ready = False
+                self._append_mission_log({
+                    'event': 'waypoint_nav_only',
+                    'timestamp_s': round(self.get_clock().now().nanoseconds / 1e9, 3),
+                    'waypoint_index': reached_wp_index + 1,
+                    'state': self.state,
+                })
+                if self.current_wp_index < len(self.waypoints):
+                    self.get_logger().info(
+                        f"[TRANSIT]: Waypoint {reached_wp_index+1} is nav-only, skipping scan and continuing to waypoint {self.current_wp_index+1}"
+                    )
+                else:
+                    self.get_logger().info(
+                        f"[TRANSIT]: Waypoint {reached_wp_index+1} is nav-only, skipping scan and preparing to return home"
+                    )
+                return
+
             self.scan_wp_index = self.current_wp_index
             self.scan_hold_orientation = self.target_pose.pose.orientation
             self.scan_start_time = None

@@ -22,6 +22,8 @@ OCCUPANCY_QOS = QoSProfile(
     durability=DurabilityPolicy.VOLATILE,
 )
 
+BLOCKED_LOG_PERIOD_SEC = 1.0
+
 
 class LocalPlannerNode(Node):
     """
@@ -86,6 +88,8 @@ class LocalPlannerNode(Node):
         self.last_debug_log_time = None
         self.last_plan_mode = None
         self.enabled = False
+        self._blocked_reason = None
+        self._last_blocked_log_time = None
 
         self.occ_sub = self.create_subscription(
             OccupancyGrid, 'occupancy_node/occupancy_grid', self._occ_cb, OCCUPANCY_QOS)
@@ -125,7 +129,13 @@ class LocalPlannerNode(Node):
     # ------------------------------------------------------------------ main loop
     def _plan(self):
         if not self.enabled:
+            self._log_blocked_state(
+                'disabled',
+                'Planner idle: /local_planner/enabled = false; early-returning from _plan().',
+            )
             return
+
+        self._clear_blocked_state('Planner resumed: /local_planner/enabled = true; _plan() active again.')
 
         if self.desired_pose is None:
             return
@@ -210,6 +220,31 @@ class LocalPlannerNode(Node):
         passthrough.header.frame_id = cmd.header.frame_id
         passthrough.pose = cmd.pose
         self.setpoint_pub.publish(passthrough)
+
+    def _log_blocked_state(self, reason: str, message: str):
+        now = self.get_clock().now()
+        if self._blocked_reason != reason:
+            self._blocked_reason = reason
+            self._last_blocked_log_time = now
+            self.get_logger().info(message)
+            return
+
+        if self._last_blocked_log_time is None:
+            self._last_blocked_log_time = now
+            self.get_logger().info(message)
+            return
+
+        elapsed_s = (now - self._last_blocked_log_time).nanoseconds / 1e9
+        if elapsed_s >= BLOCKED_LOG_PERIOD_SEC:
+            self._last_blocked_log_time = now
+            self.get_logger().info(message)
+
+    def _clear_blocked_state(self, message: str):
+        if self._blocked_reason is None:
+            return
+        self._blocked_reason = None
+        self._last_blocked_log_time = None
+        self.get_logger().info(message)
 
     def _log_passthrough(self, reason: str):
         if self.last_passthrough_reason == reason:
