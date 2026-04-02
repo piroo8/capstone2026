@@ -57,8 +57,8 @@ tmux send-keys -t 6  "ros2 run comm comm_node"
 tmux send-keys -t 7  "ros2 run waypoint_publisher waypoint_publisher"
 tmux send-keys -t 8  "ros2 service call /rob498_drone_8/comm/launch std_srvs/srv/Trigger {}"
 tmux send-keys -t 9  "ros2 service call /rob498_drone_8/comm/test std_srvs/srv/Trigger {}"
-tmux send-keys -t 10  "ros2 service call /rob498_drone_8/comm/abort std_srvs/srv/Trigger {}"
-tmux send-keys -t 11  ros2 bag record -a
+tmux send-keys -t 10 "ros2 service call /rob498_drone_8/comm/abort std_srvs/srv/Trigger {}"
+tmux send-keys -t 11 "ros2 bag record /stereo/disp_vis occupancy_node/viz -o wed_"
 #tmux send-keys -t 10 "./video.sh \"$GCS_IP\""
 # pane 11 intentionally left blank
 

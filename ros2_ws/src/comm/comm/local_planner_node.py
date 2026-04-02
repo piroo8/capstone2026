@@ -63,7 +63,7 @@ class LocalPlannerNode(Node):
         super().__init__('local_planner_node')
 
         self.declare_parameter('lookahead_dist', 0.5)   # m - intermediate waypoint distance
-        self.declare_parameter('safety_radius', 1.0)   # m - narrower gaps ignored (5 cm each side)
+        self.declare_parameter('safety_radius', 0.30)   # m - narrower gaps ignored (5 cm each side)
         self.declare_parameter('min_gap_width', 0.30)   # m - body clearance required
         self.declare_parameter('obstacle_thresh', 50)   # occupancy value = occupied
         self.declare_parameter('planner_rate', 20.0)    # Hz - match CommNode timer

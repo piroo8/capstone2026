@@ -56,8 +56,8 @@ class OccupancyNode(Node):
         super().__init__('occupancy_node')
 
         self.declare_parameter('grid_resolution', 0.1)   # m/cell
-        self.declare_parameter('grid_width_cells', 75)  # lateral  (7.5 m)
-        self.declare_parameter('grid_depth_cells', 75)  # forward  (7.5 m)
+        self.declare_parameter('grid_width_cells', 65)  # lateral  (6.5 m)
+        self.declare_parameter('grid_depth_cells', 65)  # forward  (6.5 m)
         self.declare_parameter('max_depth', 4.0)         # ignore beyond this (m)
         self.declare_parameter('height_band_frac', 0.25) # +/- frac of H centred on midrow
         self.declare_parameter('left_crop_pixels', 62)   # invalid left disparity strip

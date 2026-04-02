@@ -12,7 +12,7 @@ from scipy.spatial.transform import Rotation
 
 MIN_DEPTH = 0.1 # meters
 MAX_DEPTH = 5.0 # meters
-SKIP_FRAMES = 3 # process every Nth frame for performance
+SKIP_FRAMES = 1 # process every Nth frame for performance
 NUM_DISPARITIES = 64
 # Manual crop for the invalid left disparity strip. Tune this in pixels.
 LEFT_CROP_PIXELS = 62

@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'depth_node = perception.depth_node:main',
+            'depth_node_gpu = perception.depth_node_gpu:main',
         ],
     },
 )

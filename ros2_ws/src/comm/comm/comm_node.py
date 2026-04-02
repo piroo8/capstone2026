@@ -12,7 +12,7 @@ import numpy as np
 STATES = ['LAUNCH, ARMING']
 MODES = ['OFFBOARD', 'ALTCTL', 'STABILIZED']
 
-LAUNCH_ALT = 2
+LAUNCH_ALT = 2.0
 Z_OFFSET = -0.125
 RADIUS = 0.2
 
@@ -51,6 +51,7 @@ class CommNode(Node):
         self.target_pose = PoseStamped()
         self.current_state = State()
         self.home_pose = PoseStamped()
+        self.home_set = False
 
         # Waypoints
         self.waypoints = []
@@ -70,7 +71,8 @@ class CommNode(Node):
 
     def callback_launch(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """Takeoff in place to LAUNCH_ALT"""
-        if self.home_pose is None:
+        if self.home_set == False:
+            self.home_set = True
             self.home_pose.pose = self.current_pos.pose
             self.get_logger().info(f"[HOME SET] X: {self.current_pos.pose.position.x:.3f} | Y: {self.current_pos.pose.position.y:.3f} | Z: {self.current_pos.pose.position.z:.3f}")
 
@@ -114,7 +116,7 @@ class CommNode(Node):
         # Set target to home pose exactly
         """Return toward home XY/heading, then auto-land."""
 
-        if self.home_pose is None:
+        if self.home_set is False:
             response.success = False
             response.message = "No home pose available yet."
             return response
@@ -123,14 +125,19 @@ class CommNode(Node):
             response.success = False
             response.message = "Return home not active"
             return response
-
+            
+        self.get_logger().info("[LAND]: Entered callback_land")
         # Step 1: Lock target XY and yaw to home, but keep current Z
         self.target_pose.pose.position.x = self.home_pose.pose.position.x
         self.target_pose.pose.position.y = self.home_pose.pose.position.y
         self.target_pose.pose.position.z = self.current_pos.pose.position.z
 
-        self.target_pose.pose.orientation = self.home_pose.pose.orientation
-        
+        yaw = math.atan2(self.home_pose.pose.position.y - self.current_pos.pose.position.y, self.home_pose.pose.position.x - self.current_pos.pose.position.x)
+        self.target_pose.pose.orientation.x = 0.0
+        self.target_pose.pose.orientation.y = 0.0
+        self.target_pose.pose.orientation.z = math.sin(yaw / 2.0)
+        self.target_pose.pose.orientation.w = math.cos(yaw / 2.0)
+
         dx = self.home_pose.pose.position.x - self.current_pos.pose.position.x
         dy = self.home_pose.pose.position.y - self.current_pos.pose.position.y
 
@@ -139,6 +146,8 @@ class CommNode(Node):
         if dist < self.target_radius:
 
             self.get_logger().info("[MISSION]: Home reached. Initiating landing.")
+            self.target_pose.pose.orientation = self.home_pose.pose.orientation
+
 
             req = SetMode.Request()
             req.custom_mode = 'AUTO.LAND'
@@ -317,7 +326,8 @@ class CommNode(Node):
             self.update_waypoint_navigation()
 
         # RETURN HOME
-        elif self.return_home_active:   
+        elif self.return_home_active:
+            self.get_logger().info(f"CALLED HOME")
             # create dummy service objects to call the function
             req = Trigger.Request()
             res = Trigger.Response()
