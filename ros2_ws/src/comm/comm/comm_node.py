@@ -223,28 +223,20 @@ class CommNode(Node):
             response.message = "Return home not active"
             return response
             
-        self.get_logger().info("[LAND]: Entered callback_land")
         # Step 1: Lock target XY and yaw to home, but keep current Z
         self.target_pose.pose.position.x = self.home_pose.pose.position.x
         self.target_pose.pose.position.y = self.home_pose.pose.position.y
         self.target_pose.pose.position.z = self.current_pos.pose.position.z
 
-        yaw = math.atan2(self.home_pose.pose.position.y - self.current_pos.pose.position.y, self.home_pose.pose.position.x - self.current_pos.pose.position.x)
-        self.target_pose.pose.orientation.x = 0.0
-        self.target_pose.pose.orientation.y = 0.0
-        self.target_pose.pose.orientation.z = math.sin(yaw / 2.0)
-        self.target_pose.pose.orientation.w = math.cos(yaw / 2.0)
-
         dx = self.home_pose.pose.position.x - self.current_pos.pose.position.x
         dy = self.home_pose.pose.position.y - self.current_pos.pose.position.y
 
-        dist = np.sqrt(dx**2 + dy**2)
+        xy_dist = np.sqrt(dx**2 + dy**2)
 
-        if dist < self.target_radius:
+        if xy_dist < self.target_radius:
 
             self.get_logger().info("[MISSION]: Home reached. Initiating landing.")
             self.target_pose.pose.orientation = self.home_pose.pose.orientation
-
 
             req = SetMode.Request()
             req.custom_mode = 'AUTO.LAND'

@@ -62,7 +62,7 @@ tmux send-keys -t 8  "ros2 service call /rob498_drone_8/comm/launch std_srvs/srv
 tmux send-keys -t 9  "ros2 service call /rob498_drone_8/comm/test std_srvs/srv/Trigger {}"
 tmux send-keys -t 10 "ros2 service call /rob498_drone_8/comm/abort std_srvs/srv/Trigger {}"
 tmux send-keys -t 11 "ros2 run comm plate_reader_node"
-tmux send-keys -t 12 "ros2 bag record /stereo/disp_vis occupancy_node/viz -o thurs_"
+tmux send-keys -t 12 "ros2 bag record -a -o fri_.bag"
 #tmux send-keys -t 10 "./video.sh \"$GCS_IP\""
 
 # 8. Attach

@@ -28,6 +28,7 @@ WAYPOINTS = [
     {'x': 3.0, 'y': 0.0, 'z': 2.0, 'scan_plate': False},
     {'x': 3.0, 'y': -0.5, 'z': 2.0, 'scan_plate': False},
     {'x': 3.0, 'y': -1.0, 'z': 2.0, 'scan_plate': False},
+    {'x': 0.0, 'y': 0.0, 'z': 2.0, 'scan_plate': False}
 ]
 
 # WAYPOINTS = [
