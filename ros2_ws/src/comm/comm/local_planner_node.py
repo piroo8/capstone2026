@@ -133,8 +133,8 @@ class LocalPlannerNode(Node):
         info = self.grid_msg.info
         res = info.resolution
         W, D = info.width, info.height
-        safety_cells = max(1, int(self.safety_r / res))
-        min_gap_cells = max(1, int(self.min_gap_w / res))
+        safety_cells = max(1, int(np.ceil(self.safety_r / res - 1e-9)))
+        min_gap_cells = max(1, int(np.ceil(self.min_gap_w / res - 1e-9)))
 
         # --- 1. Intended heading -> grid column ----------------------------
         target_col, target_fwd = self._target_in_grid(W, res)
@@ -151,9 +151,10 @@ class LocalPlannerNode(Node):
         ])
 
         # --- 4. Direct path check -----------------------------------------
-        c0 = max(0, int(target_col) - safety_cells)
-        c1 = min(W - 1, int(target_col) + safety_cells)
-        direct_clear = bool(np.all(inflated[c0: c1 + 1] >= self.lookahead))
+        center_col = int(np.clip(np.round(target_col), 0, W - 1))
+        c0 = max(0, center_col - safety_cells)
+        c1 = min(W - 1, center_col + safety_cells)
+        direct_clear = bool(np.all(inflated[c0:c1 + 1] >= self.lookahead))
 
         if direct_clear and target_fwd > 0:
             self._log_plan(
